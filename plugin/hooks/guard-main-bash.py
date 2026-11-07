@@ -64,7 +64,8 @@ DEP_CHANGERS = {
     "poetry": {"add", "remove", "lock", "install", "update"},
     "cargo": {"add", "remove", "update"},
 }  # fmt: skip
-TEMP_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/", "/dev/")
+# Writes under these prefixes are allowed: a list of paths to match, not a file being created.
+TEMP_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/", "/dev/")  # noqa: S108
 SEPARATORS = {"&&", "||", ";", "|", "&"}
 PLUGIN_ID = "multi-agent-herdr@claude-code-herdr"
 
@@ -148,7 +149,7 @@ def protected(config: dict[str, Any]) -> list[str]:
 def push_target(refspec: str) -> str:
     """Branch a `git push` refspec writes: the part after `:`, without `+` and `refs/heads/`."""
     dest = refspec.lstrip("+").rsplit(":", 1)[-1]
-    return dest[len("refs/heads/"):] if dest.startswith("refs/heads/") else dest
+    return dest[len("refs/heads/") :] if dest.startswith("refs/heads/") else dest
 
 
 def in_main_worktree(path: str) -> bool:
@@ -256,7 +257,9 @@ def is_herdr(word: str, args: list[str]) -> bool:
     return word.startswith("$") and herdr_reason(args) is not None
 
 
-def check_segment(words: list[str], cwd: str, session: str = "", depth: int = 0) -> str | None:
+def check_segment(  # noqa: C901 (complexity 35; capped by lizard, see docs/code-quality.md)
+    words: list[str], cwd: str, session: str = "", depth: int = 0
+) -> str | None:
     """Reason to block this simple command, or None.
 
     `cwd` follows `cd` within the command line; `session` is the session's own directory (the
@@ -394,7 +397,7 @@ def main() -> int:
         "Only the integrator agent may change the main worktree or the protected branches. "
         "Development happens "
         "in a worktree of its own, started by the integrator with /multi-agent-herdr:dispatch "
-        "(one git worktree and one herdr workspace per agent). See \"Multi-agent workflow\" in "
+        '(one git worktree and one herdr workspace per agent). See "Multi-agent workflow" in '
         "CLAUDE.md. If you are the integrator, launch Claude Code with scripts/integrator.sh "
         "(CLAUDE_ROLE=integrator).",
         file=sys.stderr,

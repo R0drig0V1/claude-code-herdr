@@ -1,0 +1,39 @@
+# Dependabot version updates (docs/code-quality.md). Every PR it opens goes through the
+# integrator like any other PR. Minor and patch updates are grouped so the queue stays short;
+# `cooldown` skips releases younger than seven days, a buffer against a compromised or yanked
+# release. Dependabot reads this file only from the default branch.
+#
+# Not covered (bumped by hand, docs/code-quality.md "Manual bumps"): the actionlint and
+# gitleaks release tarballs in .github/workflows/quality.yml (version + sha256), the uv and
+# zizmor versions passed to their actions.
+version: 2
+
+updates:
+  # The actions of .github/workflows/, pinned by commit SHA; Dependabot updates the SHA and
+  # its version comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  # The dev linters of pyproject.toml / uv.lock (ruff, lizard).
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      dev-tools:
+        patterns: ["*"]
+    commit-message:
+      prefix: build

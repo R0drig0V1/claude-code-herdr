@@ -47,10 +47,10 @@ def worktrees() -> list[tuple[str, str]]:
     path, branch = None, "(detached)"
     for line in out.splitlines() + [""]:
         if line.startswith("worktree "):
-            path, branch = line[len("worktree "):], "(detached)"
+            path, branch = line[len("worktree ") :], "(detached)"
         elif line.startswith("branch "):
-            ref = line[len("branch "):]
-            branch = ref[len("refs/heads/"):] if ref.startswith("refs/heads/") else ref
+            ref = line[len("branch ") :]
+            branch = ref[len("refs/heads/") :] if ref.startswith("refs/heads/") else ref
         elif not line and path:
             result.append((os.path.realpath(path), branch))
             path = None
@@ -72,8 +72,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--branch", help="only the agent(s) in this branch's worktree")
     parser.add_argument("--name", help="only the agent with this herdr name")
-    parser.add_argument("--main-worktree", action="store_true",
-                        help="only agents in the main worktree (the integrator's checkout)")
+    parser.add_argument(
+        "--main-worktree",
+        action="store_true",
+        help="only agents in the main worktree (the integrator's checkout)",
+    )
     parser.add_argument("--exclude", action="append", default=[], help="skip this agent name")
     args = parser.parse_args()
 
@@ -106,8 +109,11 @@ def main() -> int:
             continue
         if args.main_worktree and match[0] != trees[0][0]:
             continue
-        print("\t".join([name, agent.get("pane_id", ""), agent.get("agent_status", ""),
-                         match[1], match[0]]))
+        print(
+            "\t".join(
+                [name, agent.get("pane_id", ""), agent.get("agent_status", ""), match[1], match[0]]
+            )
+        )
     return 0
 
 
