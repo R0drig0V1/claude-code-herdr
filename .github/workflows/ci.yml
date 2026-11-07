@@ -1,0 +1,43 @@
+# CI of claude-code-herdr: manifests, shell syntax, ShellCheck, Python and smoke tests.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JSON manifests are valid
+        run: |
+          for f in .claude-plugin/marketplace.json plugin/.claude-plugin/plugin.json \
+                   plugin/hooks/hooks.json template/.claude/settings.json; do
+            jq empty "$f" && echo "ok $f"
+          done
+
+      - name: Shell syntax
+        run: |
+          for f in install.sh tests/*.sh plugin/hooks/*.sh plugin/scripts/*.sh template/scripts/*.sh; do
+            bash -n "$f" && echo "ok $f"
+          done
+
+      - name: ShellCheck
+        if: runner.os == 'Linux'
+        run: shellcheck -S warning install.sh tests/*.sh plugin/hooks/*.sh plugin/scripts/*.sh template/scripts/*.sh
+
+      - name: Python compiles
+        run: python3 -m py_compile plugin/hooks/guard-main-bash.py plugin/scripts/agents-in-repo.py
+
+      - name: Hook and installer smoke tests
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          tests/test-hooks.sh
