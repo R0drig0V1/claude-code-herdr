@@ -207,7 +207,13 @@ or attaches the TUI.
 ```bash
 tests/test-hooks.sh                 # hook, installer and agents-in-repo.py smoke tests
 claude plugin validate plugin && claude plugin validate .
+uv run ruff check . && uv run ruff format --check .   # Python lint + format (pinned in uv.lock)
 ```
+
+CI also runs CodeQL, OpenSSF Scorecard, zizmor, actionlint, lizard and gitleaks; what each one
+checks, its thresholds and how to run it locally are in
+[docs/code-quality.md](docs/code-quality.md). Report vulnerabilities privately:
+[SECURITY.md](SECURITY.md).
 
 ## License
 

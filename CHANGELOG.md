@@ -41,6 +41,13 @@ All notable changes to this project are documented here. The format follows
   project's documented promotion. An invalid file stops scripts and skills; the guard falls
   back to the defaults.
 
+- Automated quality and security checks (docs/code-quality.md): `quality.yml` (ruff
+  check/format with mccabe <= 15, lizard complexity ceilings, zizmor, actionlint, gitleaks),
+  `codeql.yml` (CodeQL for Python and Actions), `scorecard.yml` (OpenSSF Scorecard) and
+  Dependabot version updates for actions and the uv-locked dev tools (`pyproject.toml`,
+  `uv.lock`). `ci.yml` now runs with `contents: read`, pins `actions/checkout` by SHA and
+  does not persist credentials. `SECURITY.md`: private vulnerability reporting.
+
 ### Fixed (compared with multi-agent)
 - Hooks and `install.sh` read `enabledPlugins` as JSON: a `false` entry no longer enables the
   guards, and `settings.local.json` overrides `settings.json`.
