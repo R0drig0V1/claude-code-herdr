@@ -1,0 +1,7 @@
+# Files git must not track in claude-code-herdr.
+# Claude Code local settings
+.claude/settings.local.json
+.env
+# tests/test-hooks.sh scratch repositories
+.test-work/
+__pycache__/

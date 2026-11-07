@@ -1,0 +1,18 @@
+{
+  "name": "claude-code-herdr",
+  "owner": {
+    "name": "Rodrigo Vidal",
+    "url": "https://github.com/R0drig0V1"
+  },
+  "metadata": {
+    "description": "Multi-agent development workflow for Claude Code inside herdr: integrator-owned main, one git worktree and one herdr workspace per development agent."
+  },
+  "plugins": [
+    {
+      "name": "multi-agent-herdr",
+      "source": "./plugin",
+      "description": "Skills, agents, guard hooks and notifications for running several Claude Code agents in parallel on one repository, coordinated through herdr.",
+      "category": "development"
+    }
+  ]
+}
