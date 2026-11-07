@@ -1,0 +1,18 @@
+{
+  "name": "claude-code-herdr",
+  "owner": {
+    "name": "Rodrigo Vidal",
+    "url": "https://github.com/R0drig0V1"
+  },
+  "metadata": {
+    "description": "herdr integration for the multi-agent Claude Code workflow: one herdr workspace per development agent, announcements and replies routed by herdr agent name."
+  },
+  "plugins": [
+    {
+      "name": "multi-agent-herdr",
+      "source": "./",
+      "description": "Skills dispatch, announce, reply and setup that run the multi-agent workflow inside herdr. Requires the multi-agent plugin.",
+      "category": "development"
+    }
+  ]
+}
