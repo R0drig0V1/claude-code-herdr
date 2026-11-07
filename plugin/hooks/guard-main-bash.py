@@ -23,9 +23,14 @@ session, it blocks:
   worktree. Writes to temporary directories are allowed.
 
 It is a guardrail against mistakes, not a sandbox: the command is parsed with `shlex` per
-`&&`/`||`/`;`/`|` segment, following `cd <dir>` and `git -C <dir>`, and a creative command
-can still get through. Exit code 2 blocks the call and shows stderr to the agent. Any
-internal error allows the command (the hook must never wedge a session).
+`&&`/`||`/`;`/`|` segment, following `cd <dir>`, `git -C <dir>`, the `env`/`command`/`exec`/
+`builtin`/`nohup`/`time` prefixes and `sh|bash|zsh -c` / `eval` strings (up to 3 levels).
+herdr is recognised by name or path, by `$HERDR_BIN_PATH`, and as any unresolved `$VAR`
+program given an input-sending herdr subcommand; the herdr rules apply whenever the session
+itself, or the directory the command `cd`s to, is in an enabled repository. A creative
+command (another language, a script file, an alias, `xargs`) can still get through. Exit
+code 2 blocks the call and shows stderr to the agent. Any internal error allows the command
+(the hook must never wedge a session).
 
 Python 3.9 compatible: it runs under the system `python3`, not a project virtualenv.
 """
@@ -179,8 +184,33 @@ def segments(command: str) -> list[list[str]]:
     return [s for s in result if s]
 
 
-def check_segment(words: list[str], cwd: str) -> str | None:
-    """Reason to block this simple command, or None."""
+WRAPPERS = {"command", "exec", "builtin", "nohup", "time"}  # run their argument as the command
+SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
+MAX_DEPTH = 3  # nested `bash -c` / `eval` strings followed
+
+
+def is_herdr(word: str, args: list[str]) -> bool:
+    """Whether the program word `word` runs herdr.
+
+    Covers a path ending in `herdr`, the `$HERDR_BIN_PATH` / `${HERDR_...}` variables herdr
+    injects into its panes (expanded with this hook's environment when set), and any other
+    unresolved `$VAR` program whose arguments are a herdr subcommand that sends input.
+    """
+    if os.path.basename(os.path.expandvars(word)) == "herdr":
+        return True
+    if re.fullmatch(r"\$\{?HERDR_\w*\}?", word):
+        return True
+    return word.startswith("$") and herdr_reason(args) is not None
+
+
+def check_segment(words: list[str], cwd: str, session: str = "", depth: int = 0) -> str | None:
+    """Reason to block this simple command, or None.
+
+    `cwd` follows `cd` within the command line; `session` is the session's own directory (the
+    hook payload's cwd), which decides whether the herdr rules apply: herdr commands act on
+    the herdr server, not on a directory, so a `cd` elsewhere must not disable them.
+    """
+    session = session or cwd
     # Redirections (`> f`, `>> f`, `2> f`, `&> f`; shlex splits the operator off). Drop the
     # operator, its target and a file-descriptor number before it from the words.
     kept: list[str] = []
@@ -198,13 +228,33 @@ def check_segment(words: list[str], cwd: str) -> str | None:
         kept.append(word)
         i += 1
     words = kept
-    if words[:1] == ["env"]:
-        words = words[1:]  # `env VAR=value cmd` sets variables like a plain `VAR=value cmd`
-    while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
-        words = words[1:]  # leading VAR=value assignments
+    while words:
+        if words[0] == "env" or words[0] in WRAPPERS:
+            # `env VAR=value cmd`, `command cmd`, `exec cmd`...: the argument is the command.
+            words = words[1:]
+            while words and words[0].startswith("-"):
+                words = words[1:]  # wrapper options (`command -p`, `env -i`)
+        elif re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+            words = words[1:]  # leading VAR=value assignments
+        else:
+            break
     if not words:
         return None
     prog, args = os.path.basename(words[0]), words[1:]
+
+    # `bash -c '<command>'` and `eval '<command>'`: check the command string itself.
+    inner = None
+    if prog in SHELLS and "-c" in args[:-1]:
+        inner = args[args.index("-c") + 1]
+    elif prog == "eval":
+        inner = " ".join(args)
+    if inner is not None and depth < MAX_DEPTH:
+        return check_command(inner, cwd, session, depth + 1)
+
+    if is_herdr(words[0], args):
+        # Either directory being in an enabled repository is enough: a `cd` out of the repo
+        # must not disable the rule, and neither must starting outside it and `cd`-ing in.
+        return herdr_reason(args) if guarded_repo(session) or guarded_repo(cwd) else None
     if prog == "npx" or (prog in {"uv", "pnpm"} and args[:1] in (["run"], ["exec"], ["dlx"])):
         # `uv run ruff ...`, `npx prettier ...`: check the tool that actually runs.
         args = args[1:] if prog != "npx" else args
@@ -214,9 +264,6 @@ def check_segment(words: list[str], cwd: str) -> str | None:
 
     if prog == "gh" and args[:2] == ["pr", "merge"] and guarded_repo(cwd):
         return "only the integrator merges pull requests"
-
-    if prog == "herdr" and guarded_repo(cwd):
-        return herdr_reason(args)
 
     if prog == "git":
         git_cwd = cwd
@@ -257,6 +304,18 @@ def check_segment(words: list[str], cwd: str) -> str | None:
     return None
 
 
+def check_command(command: str, cwd: str, session: str, depth: int = 0) -> str | None:
+    """Reason to block a whole command line, or None; follows `cd` from segment to segment."""
+    for words in segments(command):
+        if words[0] == "cd":
+            cwd = resolve(cwd, words[1]) if len(words) > 1 else os.path.expanduser("~")
+            continue
+        reason = check_segment(words, cwd, session, depth)
+        if reason:
+            return reason
+    return None
+
+
 def main() -> int:
     if os.environ.get("CLAUDE_ROLE") == "integrator":
         return 0
@@ -264,14 +323,7 @@ def main() -> int:
         payload = json.load(sys.stdin)
         command = payload.get("tool_input", {}).get("command", "")
         cwd = payload.get("cwd") or os.getcwd()
-        reason = None
-        for words in segments(command):
-            if words[0] == "cd":
-                cwd = resolve(cwd, words[1]) if len(words) > 1 else os.path.expanduser("~")
-                continue
-            reason = check_segment(words, cwd)
-            if reason:
-                break
+        reason = check_command(command, cwd, session=cwd)
     except Exception:  # a broken guard must not block the session
         return 0
     if not reason:

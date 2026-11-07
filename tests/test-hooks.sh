@@ -99,6 +99,24 @@ expect 0 "herdr: prompt the integrator"               "$g" "$(bash_cmd 'herdr ag
 expect 0 "herdr: read-only commands"                  "$g" "$(bash_cmd 'herdr agent list && herdr pane current --current' "$x")"
 expect 0 "herdr: repo without the plugin"             "$g" "$(bash_cmd 'herdr pane run w1:p1 ls' "$off")"
 CLAUDE_ROLE=integrator expect 0 "herdr: integrator prompts an agent" "$g" "$(bash_cmd 'herdr agent prompt x "verdict"' "$on")"
+# Round-3 bypasses: the herdr rules follow the session, not the command's cd, and herdr is
+# recognised behind variables, wrappers and shell strings.
+expect 2 "herdr: after cd out of the repo"            "$g" "$(bash_cmd 'cd /tmp && herdr pane run w1:p1 "git push origin main"' "$x")"
+HERDR_BIN_PATH=/opt/herdr/bin/herdr \
+expect 2 "herdr: \"\$HERDR_BIN_PATH\" (set)"          "$g" "$(bash_cmd '"$HERDR_BIN_PATH" pane run w1:p1 "git push origin main"' "$x")"
+HERDR_BIN_PATH='' \
+expect 2 "herdr: \${HERDR_BIN_PATH} (unset)"          "$g" "$(bash_cmd '${HERDR_BIN_PATH} agent send-keys integrator enter' "$x")"
+expect 2 "herdr: other variable as program"           "$g" "$(bash_cmd '$H pane send-text w1:p1 y' "$x")"
+expect 2 "herdr: command prefix"                      "$g" "$(bash_cmd 'command herdr agent send-keys integrator enter' "$x")"
+expect 2 "herdr: exec and time prefixes"              "$g" "$(bash_cmd 'time exec herdr pane run w1:p1 ls' "$x")"
+expect 2 "herdr: bash -c string"                      "$g" "$(bash_cmd "bash -c 'herdr pane run w1:p1 ls'" "$x")"
+expect 2 "herdr: eval string"                         "$g" "$(bash_cmd "eval 'herdr agent send-keys integrator enter'" "$x")"
+expect 2 "herdr: cd inside bash -c"                   "$g" "$(bash_cmd "sh -c 'cd /tmp && herdr pane run w1:p1 ls'" "$x")"
+expect 0 "herdr: \$HERDR_BIN_PATH prompts integrator" "$g" "$(bash_cmd '"$HERDR_BIN_PATH" agent prompt integrator "PR #1 ready"' "$x")"
+expect 0 "herdr: read-only after cd and in bash -c"   "$g" "$(bash_cmd "cd /tmp && herdr agent list && bash -c 'herdr pane list'" "$x")"
+expect 0 "herdr: other variable, harmless args"       "$g" "$(bash_cmd '$EDITOR notes.md' "$x")"
+expect 0 "herdr: cd away in repo without plugin"      "$g" "$(bash_cmd 'cd /tmp && command herdr pane run w1:p1 ls' "$off")"
+expect 2 "bash: bash -c git commit in main worktree"  "$g" "$(bash_cmd "bash -c 'git commit -m x'" "$on")"
 
 w="$hooks/guard-main-worktree.sh"
 expect 2 "edit: file in main worktree"                "$w" "$(file_op "$on/a/b/new.md")"

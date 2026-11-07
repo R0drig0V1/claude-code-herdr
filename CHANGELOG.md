@@ -23,7 +23,10 @@ All notable changes to this project are documented here. The format follows
 
 - The Bash guard blocks herdr commands that type into another pane (`agent
   send-keys|attach|rename`, `pane run|send-keys|send-text`, `terminal attach|session`, and
-  `agent prompt` to anyone but `integrator`) for development agents.
+  `agent prompt` to anyone but `integrator`) for development agents, also after a `cd` out
+  of the repository, behind `$HERDR_BIN_PATH` / other `$VAR` programs, behind the `command`,
+  `exec`, `builtin`, `nohup` and `time` prefixes, and inside `sh|bash|zsh -c` / `eval`
+  strings (which also brings the other Bash rules to those strings).
 - `scripts/claim-integrator.sh`, run by `dispatch` and `integrate`, gives the integrator the
   herdr name `integrator`; `pr` only announces to the `integrator` in its own repository's
   main worktree (`agents-in-repo.py --name integrator --main-worktree`).

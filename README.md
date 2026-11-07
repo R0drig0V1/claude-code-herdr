@@ -154,7 +154,11 @@ or attaches the TUI.
 - The guards are **guardrails, not a sandbox**. They parse commands with `shlex`, and a
   deliberately creative command can get past them. They fail open: if `python3` or `jq` is
   missing, or the hook errors, the command is allowed.
-  A command run through another interpreter (`sh -c "herdr pane run ..."`) is not parsed.
+  The guard follows `cd`, the `env`/`command`/`exec`/`builtin`/`nohup`/`time` prefixes,
+  `sh|bash|zsh -c` and `eval` strings, and recognises herdr behind `$HERDR_BIN_PATH` or any
+  `$VAR` given an input-sending subcommand; the herdr rules apply when either the session or
+  the `cd` target is in an enabled repository. Another language, a script file, an alias or
+  `xargs` still gets through.
 - The integrator is recognised only by `CLAUDE_ROLE=integrator` (hooks) and the herdr agent
   name `integrator` in the repository's main worktree (messages). One integrator per herdr
   server, because herdr agent names are unique per server.
