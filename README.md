@@ -101,7 +101,9 @@ the promotion procedure the project documents in `CLAUDE.md` or
 1. In `.claude/settings.json`, replace `multi-agent@claude-code-multi-agent` with
    `multi-agent-herdr@claude-code-herdr` and the `claude-code-multi-agent` marketplace with
    `claude-code-herdr` (see `template/.claude/settings.json`). Both enabled means both plugins'
-   hooks run.
+   hooks run. `install.sh` does this step: it adds the new plugin and sets
+   `multi-agent@claude-code-multi-agent` to `false`, and says so (`disabled ...`). It only
+   warns about a `.claude/settings.local.json` that still enables the old plugin.
 2. Update the project's `CLAUDE.md` ("Multi-agent workflow") and
    `.claude/prompts/integrator.md` from `template/`; skill names change from `/multi-agent:*` to
    `/multi-agent-herdr:*`, and `/multi-agent:worktree` is replaced by `dispatch`.
@@ -206,9 +208,16 @@ or attaches the TUI.
 
 ```bash
 tests/test-hooks.sh                 # hook, installer and agents-in-repo.py smoke tests
+tests/check-skill-substitutions.py  # skills: no $0, $1, ... or $ARGUMENTS in shell code (also run by test-hooks.sh)
 claude plugin validate plugin && claude plugin validate .
 uv run ruff check . && uv run ruff format --check .   # Python lint + format (pinned in uv.lock)
 ```
+
+Claude Code replaces `$ARGUMENTS`, `$ARGUMENTS[N]`, `$0`, `$1`, ... (and names declared in
+an `arguments` frontmatter field) in a skill's content with the skill's arguments
+([skills docs](https://code.claude.com/docs/en/skills#available-string-substitutions)). Shell
+and awk code in a SKILL.md therefore must not use them: put such code in `plugin/scripts/`
+(as `worktree-of.sh` does for `dispatch`) and call the script.
 
 CI also runs CodeQL, OpenSSF Scorecard, zizmor, actionlint, lizard and gitleaks; what each one
 checks, its thresholds and how to run it locally are in
