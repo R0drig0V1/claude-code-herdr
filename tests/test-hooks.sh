@@ -378,6 +378,36 @@ else
     echo "FAIL  claim-integrator: configured name (exit $status, log '$(cat "$FAKE_LOG")')"; fails=$((fails + 1))
 fi
 
+# Skills keep shell code free of the tokens Claude Code substitutes with the arguments ($0,
+# $ARGUMENTS in a code block, ...): tests/check-skill-substitutions.py.
+if python3 "$root/tests/check-skill-substitutions.py" "$root/plugin/skills"; then
+    echo "ok    skills: no argument placeholder in shell code"
+else
+    echo "FAIL  skills: argument placeholder that Claude Code would substitute"; fails=$((fails + 1))
+fi
+mkdir -p "$work/skills-bad/x"
+# The line that broke in dispatch (before worktree-of.sh).
+cat > "$work/skills-bad/x/SKILL.md" <<'MD'
+```bash
+WT=$(git worktree list --porcelain | awk -v b="branch refs/heads/$BRANCH" '/^worktree /{p=substr($0,10)} $0==b{print p}')
+```
+MD
+if ! python3 "$root/tests/check-skill-substitutions.py" "$work/skills-bad" >/dev/null 2>&1; then
+    echo "ok    skills: the check rejects an awk \$0 in a skill"
+else
+    echo "FAIL  skills: the check accepted an awk \$0"; fails=$((fails + 1))
+fi
+# worktree-of.sh: the dispatch skill's branch -> worktree lookup (path with spaces).
+got=$(cd "$sp" && "$root/plugin/scripts/worktree-of.sh" feat/y)
+if [[ "$got" == "$(cd "$work/with space/repo-y" && pwd -P)" || "$got" == "$work/with space/repo-y" ]]; then
+    echo "ok    worktree-of: path of a branch's worktree"
+else
+    echo "FAIL  worktree-of: got '$got'"; fails=$((fails + 1))
+fi
+(cd "$sp" && "$root/plugin/scripts/worktree-of.sh" feat/none >/dev/null 2>&1); [[ $? == 1 ]] \
+    && echo "ok    worktree-of: exit 1 for a branch without a worktree" \
+    || { echo "FAIL  worktree-of: branch without a worktree"; fails=$((fails + 1)); }
+
 # Every `herdr agent prompt` in the skills sends the header: a literal message starts with it,
 # and a "$VAR" message is assigned with the header as its first line in the same file.
 if python3 - "$root/plugin/skills" <<'PY'
