@@ -5,3 +5,6 @@
 # tests/test-hooks.sh scratch repositories
 .test-work/
 __pycache__/
+# uv dev environment and linter caches (pyproject.toml, docs/code-quality.md)
+.venv/
+.ruff_cache/
