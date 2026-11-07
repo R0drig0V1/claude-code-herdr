@@ -14,7 +14,8 @@
 # 1. scripts/verify-reset.sh, if the project has one: recreate shared state (e.g. the
 #    integrator's test database) from scratch, so state left by an earlier, aborted
 #    verification cannot break (or fake) this one.
-# 2. scripts/worktree-setup.sh, if present: install dependencies the PR may have added.
+# 2. scripts/worktree-setup.sh, if present: install dependencies the PR may have added. It
+#    receives the project's base branch (project-config.py base_branch, default main) as $1.
 # 3. scripts/check.sh: lint, formatting, types and tests. A project without one only gets a
 #    warning, so configure it before trusting a VERIFY OK.
 #
@@ -55,7 +56,8 @@ trap report_failure EXIT
 
 failed_step="reset verification state"; reset_state
 if [[ -x scripts/worktree-setup.sh ]]; then
-    failed_step="worktree setup"; step "$failed_step"; scripts/worktree-setup.sh main
+    failed_step="worktree setup"; step "$failed_step"
+    scripts/worktree-setup.sh "$("$(dirname "$0")/project-config.py" --root "$repo_root" base_branch)"
 fi
 failed_step="checks"; step "$failed_step"
 if [[ -x scripts/check.sh ]]; then

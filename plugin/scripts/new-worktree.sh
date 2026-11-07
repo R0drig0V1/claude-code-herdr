@@ -7,8 +7,11 @@
 # /multi-agent-herdr:dispatch skill runs it from the main worktree, then opens the new worktree
 # as its own herdr workspace. It works on the repository of the current directory.
 #
-# - Creates ../<repo>-<short-kebab-name> on a new branch <type>/<short-kebab-name>, from
-#   origin/main when it exists (the integrator pushes main there), else local main.
+# - Creates ../<worktree_prefix><short-kebab-name> (default prefix: "<repo>-") on a new branch
+#   <type>/<short-kebab-name>, from origin/<base_branch> when it exists (the integrator pushes
+#   the base branch there), else the local base branch. base_branch defaults to main; both
+#   settings come from .claude/multi-agent-herdr.json (project-config.py), and an invalid file
+#   stops the script before anything is created.
 # - Copies the main checkout's .env, if there is one (it is not tracked by git).
 # - Runs scripts/worktree-setup.sh inside the new worktree when the project has one: the
 #   place for per-worktree setup such as `uv sync`, `pnpm install` or creating a private test
@@ -20,12 +23,15 @@ branch="${1:?usage: new-worktree.sh <type>/<short-kebab-name>}"
 [[ "$branch" == */* ]] || { echo "branch must look like <type>/<name>, got: $branch" >&2; exit 1; }
 
 repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+config="$(dirname "$0")/project-config.py"
+base_branch=$("$config" --root "$repo_root" base_branch)
+prefix=$("$config" --root "$repo_root" worktree_prefix)
 name="${branch#*/}"
-worktree="$(dirname "$repo_root")/$(basename "$repo_root")-${name}"
+worktree="$(dirname "$repo_root")/${prefix}${name}"
 
-git -C "$repo_root" fetch --quiet origin main 2>/dev/null || true
-base=main
-git -C "$repo_root" rev-parse --verify --quiet origin/main >/dev/null && base=origin/main
+git -C "$repo_root" fetch --quiet origin "$base_branch" 2>/dev/null || true
+base=$base_branch
+git -C "$repo_root" rev-parse --verify --quiet "origin/$base_branch" >/dev/null && base="origin/$base_branch"
 
 git -C "$repo_root" worktree add --no-track -b "$branch" "$worktree" "$base"
 
@@ -37,5 +43,5 @@ if [[ -x "$worktree/scripts/worktree-setup.sh" ]]; then
 fi
 
 echo
-echo "worktree ready: $worktree  (branch $branch)"
+echo "worktree ready: $worktree  (branch $branch, from $base)"
 echo "next: open it as its own herdr workspace (/multi-agent-herdr:dispatch does)"

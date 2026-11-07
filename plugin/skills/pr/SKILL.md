@@ -11,26 +11,38 @@ syntax from `herdr --skill` and `herdr agent|pane` (herdr 0.9.5).
 
 # Pull request
 
+## 0. Project settings
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/project-config.py"; echo "exit=$?"
+```
+
+It prints the project's settings (`.claude/multi-agent-herdr.json`, defaults when absent).
+Below, **`<base>`** is `base_branch` (default `main`) and **`<integrator>`** is
+`integrator_name` (default `integrator`): write their values literally into every command,
+because shell variables do not survive from one command to the next. A non-zero exit means
+the file is invalid: stop and show the user the error.
+
 ## 1. Branch
 
-- Never open a PR from `main`, and never from the main worktree: a development agent is
+- Never open a PR from `<base>` or `main`, and never from the main worktree: a development agent is
   started by the integrator with `/multi-agent-herdr:dispatch`, already inside a worktree of
   its own (`<type>/<short-kebab-description>`, e.g. `feat/user-login`). See "Multi-agent
   workflow" in CLAUDE.md.
 - Make sure everything intended is committed (use the `commit` skill if not).
-- Rebase onto the latest `main` so the integrator merges what you tested:
-  `git fetch origin && git rebase origin/main`. If a new migration of yours no longer chains
-  onto main's latest one, renumber it and re-chain it now.
+- Rebase onto the latest `<base>` so the integrator merges what you tested:
+  `git fetch origin && git rebase origin/<base>`. If a new migration of yours no longer chains
+  onto `<base>`'s latest one, renumber it and re-chain it now.
 
 ## 2. Check
 
 ```bash
 scripts/check.sh
-git log --oneline origin/main..HEAD
-git diff --stat origin/main...HEAD
+git log --oneline origin/<base>..HEAD
+git diff --stat origin/<base>...HEAD
 ```
 
-Read the full diff against `main` to write the description; do not rely on commit subjects only.
+Read the full diff against `<base>` to write the description; do not rely on commit subjects only.
 
 ## 3. Push and create
 
@@ -41,14 +53,14 @@ git push -u origin HEAD
 If the GitHub CLI is available (`command -v gh`), create the PR with it:
 
 ```bash
-gh pr create --base main --title "<conventional title>" --body-file - <<'BODY'
+gh pr create --base <base> --title "<conventional title>" --body-file - <<'BODY'
 ...
 BODY
 ```
 
 If `gh` is not installed, tell the user (`brew install gh && gh auth login`) and print the
 compare URL instead, built from the `origin` remote
-(`https://github.com/<owner>/<repo>/compare/main...<branch>?expand=1`), together with the
+(`https://github.com/<owner>/<repo>/compare/<base>...<branch>?expand=1`), together with the
 title and body ready to paste.
 
 ## 4. Body template (English)
@@ -91,11 +103,11 @@ ME=$(herdr agent list | jq -r --arg p "$ME_PANE" '.result.agents[] | select(.pan
 ```
 
 The integrator must be **this repository's**. herdr names are unique per server, not per
-repository, so an agent named `integrator` may belong to another repository. Check that it
+repository, so an agent named `<integrator>` may belong to another repository. Check that it
 sits in this repository's main worktree:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/agents-in-repo.py" --name integrator --main-worktree; echo "exit=$?"
+"${CLAUDE_PLUGIN_ROOT}/scripts/agents-in-repo.py" --name <integrator> --main-worktree; echo "exit=$?"
 ```
 
 - One line, status not `blocked`: send the announcement (below).
@@ -120,7 +132,7 @@ Risky: <anything the reviewer should look at, or "nothing special">
 Checks: <commands run and their exit codes>
 EOF
 )"
-herdr agent prompt integrator "$MSG"; echo "exit=$?"
+herdr agent prompt <integrator> "$MSG"; echo "exit=$?"
 ```
 
 Without a PR number (no `gh`), line 2 is `Branch <branch> ready (no PR: <reason>)` plus the

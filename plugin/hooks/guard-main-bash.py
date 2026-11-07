@@ -4,16 +4,19 @@
 Part of the multi-agent-herdr plugin (ported from multi-agent 0.1.0; only the plugin id
 and the block message differ).
 
-Only the integrator session (CLAUDE_ROLE=integrator) may change the main worktree or `main`
-(see "Multi-agent workflow" in CLAUDE.md). It only acts on repositories that enabled the
-plugin in `.claude/settings.json` or `.claude/settings.local.json` (`enabledPlugins` value
-`true`; `settings.local.json` wins when it sets the key). There, for every other
-session, it blocks:
+Only the integrator session (CLAUDE_ROLE=integrator) may change the main worktree or the
+protected branches (see "Multi-agent workflow" in CLAUDE.md). It only acts on repositories
+that enabled the plugin in `.claude/settings.json` or `.claude/settings.local.json`
+(`enabledPlugins` value `true`; `settings.local.json` wins when it sets the key). There, for
+every other session, it blocks:
 
-* from any worktree: `git push` to `main` (or `--all` / `--mirror`) and `gh pr merge`.
+* from any worktree: `git push` to a protected branch (`main`, the project's `base_branch`
+  and its `protected_branches` patterns, from `.claude/multi-agent-herdr.json`; see
+  scripts/project-config.py), `git push --all` / `--mirror`, and `gh pr merge`.
 * from any worktree, herdr commands that type into another pane or take over another agent:
   `herdr agent send-keys|attach|rename`, `herdr pane run|send-keys|send-text`,
-  `herdr terminal attach|session`, and `herdr agent prompt` to any target but `integrator`.
+  `herdr terminal attach|session`, and `herdr agent prompt` to any target but the project's
+  integrator (`integrator_name`, default `integrator`).
   Without this, a development agent could run `git push origin main` in the integrator's pane
   or answer its approval dialog, outside any guarded Bash call.
 * in the main worktree: git commands that change the checkout or its history (commit, merge,
@@ -37,12 +40,15 @@ Python 3.9 compatible: it runs under the system `python3`, not a project virtual
 
 from __future__ import annotations
 
+import fnmatch
+import importlib.util
 import json
 import os
 import re
 import shlex
 import subprocess
 import sys
+from typing import Any
 
 GIT_MUTATING = {
     "add", "am", "apply", "checkout", "cherry-pick", "clean", "commit", "merge", "mv", "pull",
@@ -104,6 +110,47 @@ def guarded_repo(path: str) -> bool:
     return dirs is not None and enabled(dirs[1])
 
 
+def _load_project_config() -> Any:
+    """The plugin's scripts/project-config.py as a module (one reader for every component)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts",
+                        "project-config.py")  # fmt: skip
+    spec = importlib.util.spec_from_file_location("project_config", path)
+    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
+project_config = _load_project_config()
+
+
+def settings(path: str) -> dict[str, Any] | None:
+    """Project settings of the enabled repository containing `path`, or None.
+
+    An invalid `.claude/multi-agent-herdr.json` falls back to the defaults: the guard must not
+    wedge every session, and the defaults still protect `main` (the skills and scripts stop on
+    the invalid file and report it).
+    """
+    dirs = git_dirs(path)
+    if dirs is None or not enabled(dirs[1]):
+        return None
+    root = os.path.dirname(dirs[1])
+    try:
+        return project_config.load(root)  # type: ignore[no-any-return]
+    except project_config.ConfigError:
+        return project_config.defaults(root)  # type: ignore[no-any-return]
+
+
+def protected(config: dict[str, Any]) -> list[str]:
+    """Branch patterns only the integrator may push: main, base_branch, protected_branches."""
+    return ["main", config["base_branch"], *config["protected_branches"]]
+
+
+def push_target(refspec: str) -> str:
+    """Branch a `git push` refspec writes: the part after `:`, without `+` and `refs/heads/`."""
+    dest = refspec.lstrip("+").rsplit(":", 1)[-1]
+    return dest[len("refs/heads/"):] if dest.startswith("refs/heads/") else dest
+
+
 def in_main_worktree(path: str) -> bool:
     dirs = git_dirs(path)
     return dirs is not None and dirs[0] == dirs[1] and enabled(dirs[1])
@@ -144,8 +191,13 @@ HERDR_INPUT = {
 HERDR_VALUE_OPTS = {"--session", "--machine", "--remote", "--remote-keybindings"}
 
 
-def herdr_reason(args: list[str]) -> str | None:
-    """Reason to block a `herdr ...` invocation from a non-integrator session, or None."""
+def herdr_reason(args: list[str], integrators: set[str] | None = None) -> str | None:
+    """Reason to block a `herdr ...` invocation from a non-integrator session, or None.
+
+    `integrators` are the herdr names development agents may `agent prompt` (the integrator of
+    each enabled repository involved); default `{"integrator"}`.
+    """
+    integrators = integrators or {"integrator"}
     words = list(args)
     while words and words[0].startswith("-"):  # global options such as --machine <label>
         opt = words.pop(0)
@@ -156,8 +208,9 @@ def herdr_reason(args: list[str]) -> str | None:
         return f"`herdr {group} {sub}` sends input to another pane; only the integrator may"
     if (group, sub) == ("agent", "prompt"):
         target = next((w for w in words[2:] if not w.startswith("-")), "")
-        if target != "integrator":
-            return "development agents may `herdr agent prompt` only the agent `integrator`"
+        if target not in integrators:
+            names = ", ".join(f"`{n}`" for n in sorted(integrators))
+            return f"development agents may `herdr agent prompt` only the integrator ({names})"
     return None
 
 
@@ -254,7 +307,10 @@ def check_segment(words: list[str], cwd: str, session: str = "", depth: int = 0)
     if is_herdr(words[0], args):
         # Either directory being in an enabled repository is enough: a `cd` out of the repo
         # must not disable the rule, and neither must starting outside it and `cd`-ing in.
-        return herdr_reason(args) if guarded_repo(session) or guarded_repo(cwd) else None
+        configs = [c for c in (settings(session), settings(cwd)) if c is not None]
+        if not configs:
+            return None
+        return herdr_reason(args, {c["integrator_name"] for c in configs})
     if prog == "npx" or (prog in {"uv", "pnpm"} and args[:1] in (["run"], ["exec"], ["dlx"])):
         # `uv run ruff ...`, `npx prettier ...`: check the tool that actually runs.
         args = args[1:] if prog != "npx" else args
@@ -272,12 +328,17 @@ def check_segment(words: list[str], cwd: str, session: str = "", depth: int = 0)
                 git_cwd = resolve(git_cwd, args[1])
             args = args[2:]
         sub = args[0] if args else ""
-        if sub == "push" and guarded_repo(git_cwd):
+        config = settings(git_cwd) if sub == "push" else None
+        if config is not None:
             refs = [a for a in args[1:] if not a.startswith("-")]
-            if {"--all", "--mirror"} & set(args) or any(
-                re.search(r"(^|:)(refs/heads/)?main$", r) for r in refs[1:]
-            ):
-                return "pushing to main; open a pull request with /multi-agent-herdr:pr instead"
+            if {"--all", "--mirror"} & set(args):
+                return "`git push --all/--mirror` would push protected branches"
+            patterns = protected(config)
+            for ref in refs[1:]:
+                branch = push_target(ref)
+                if any(fnmatch.fnmatchcase(branch, p) for p in patterns):
+                    return (f"pushing to the protected branch {branch}; open a pull request "
+                            "with /multi-agent-herdr:pr instead")  # fmt: skip
         if sub in GIT_MUTATING and in_main_worktree(git_cwd):
             return f"`git {sub}` in the main worktree"
         changes_branch = sub == "branch" and {"-d", "-D", "-m", "-M", "-f"} & set(args)
@@ -330,7 +391,8 @@ def main() -> int:
         return 0
     print(
         f"Blocked: {reason}.\n"
-        "Only the integrator agent may change the main worktree or main. Development happens "
+        "Only the integrator agent may change the main worktree or the protected branches. "
+        "Development happens "
         "in a worktree of its own, started by the integrator with /multi-agent-herdr:dispatch "
         "(one git worktree and one herdr workspace per agent). See \"Multi-agent workflow\" in "
         "CLAUDE.md. If you are the integrator, launch Claude Code with scripts/integrator.sh "

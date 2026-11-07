@@ -16,7 +16,7 @@ This repository must stay **extremely well documented**. Documentation is in Eng
 
 ```bash
 git status --short
-git diff origin/main...HEAD --stat     # or `git diff` for uncommitted work
+git diff origin/<base>...HEAD --stat   # <base>: `"${CLAUDE_PLUGIN_ROOT}/scripts/project-config.py" base_branch`; or `git diff` for uncommitted work
 ```
 
 ## 2. Update, in this order

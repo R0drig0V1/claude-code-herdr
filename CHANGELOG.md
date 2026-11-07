@@ -31,6 +31,16 @@ All notable changes to this project are documented here. The format follows
   herdr name `integrator`; `pr` only announces to the `integrator` in its own repository's
   main worktree (`agents-in-repo.py --name integrator --main-worktree`).
 
+- `.claude/multi-agent-herdr.json` (optional, project-owned) and `scripts/project-config.py`,
+  its only reader: `base_branch` (default `main`) for projects whose PRs target an
+  integration branch such as `dev`, `integrator_name` (default `integrator`),
+  `protected_branches` (extra push-protected patterns) and `worktree_prefix` (default
+  `<repo>-`). Used by `new-worktree.sh`, `verify-merge.sh`, `claim-integrator.sh`, the Bash
+  guard, `scripts/integrator.sh` and the `pr`, `integrate`, `dispatch`, `document` and `setup`
+  skills. `integrate` never moves `main` when the base is another branch; it follows the
+  project's documented promotion. An invalid file stops scripts and skills; the guard falls
+  back to the defaults.
+
 ### Fixed (compared with multi-agent)
 - Hooks and `install.sh` read `enabledPlugins` as JSON: a `false` entry no longer enables the
   guards, and `settings.local.json` overrides `settings.json`.
