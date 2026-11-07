@@ -117,6 +117,59 @@ expect 0 "herdr: read-only after cd and in bash -c"   "$g" "$(bash_cmd "cd /tmp 
 expect 0 "herdr: other variable, harmless args"       "$g" "$(bash_cmd '$EDITOR notes.md' "$x")"
 expect 0 "herdr: cd away in repo without plugin"      "$g" "$(bash_cmd 'cd /tmp && command herdr pane run w1:p1 ls' "$off")"
 expect 2 "bash: bash -c git commit in main worktree"  "$g" "$(bash_cmd "bash -c 'git commit -m x'" "$on")"
+expect 0 "bash: push to dev without settings"         "$g" "$(bash_cmd 'git push origin HEAD:dev' "$x")"
+expect 0 "bash: push a feature branch"                "$g" "$(bash_cmd 'git push -u origin HEAD' "$x")"
+
+# .claude/multi-agent-herdr.json: an integration branch, another integrator name, extra
+# protected patterns and another worktree prefix (scripts/project-config.py).
+cfg="$work/cfg"
+new_repo "$cfg" yes
+cat > "$cfg/.claude/multi-agent-herdr.json" <<'JSON'
+{"$comment": "test", "base_branch": "dev", "integrator_name": "integrador",
+ "protected_branches": ["promote/*"], "worktree_prefix": "chat-"}
+JSON
+git -C "$cfg" branch dev
+git -C "$cfg" worktree add --quiet -b feat/z "$work/cfg-z"
+z="$work/cfg-z"
+expect 2 "settings: push HEAD:dev"                    "$g" "$(bash_cmd 'git push origin HEAD:dev' "$z")"
+expect 2 "settings: push +HEAD:refs/heads/dev"        "$g" "$(bash_cmd 'git push origin +HEAD:refs/heads/dev' "$z")"
+expect 2 "settings: push main stays protected"        "$g" "$(bash_cmd 'git push origin main' "$z")"
+expect 2 "settings: push a protected pattern"         "$g" "$(bash_cmd 'git push origin HEAD:promote/2026-11' "$z")"
+expect 2 "settings: push --all"                       "$g" "$(bash_cmd 'git push --all origin' "$z")"
+expect 0 "settings: push the feature branch"          "$g" "$(bash_cmd 'git push -u origin feat/z' "$z")"
+expect 0 "settings: prompt the configured integrator" "$g" "$(bash_cmd 'herdr agent prompt integrador "PR #1 ready"' "$z")"
+expect 2 "settings: prompt the default name"          "$g" "$(bash_cmd 'herdr agent prompt integrator "PR #1 ready"' "$z")"
+CLAUDE_ROLE=integrator expect 0 "settings: integrator pushes dev" "$g" "$(bash_cmd 'git push origin dev' "$cfg")"
+
+pc="$root/plugin/scripts/project-config.py"
+check_pc() {  # check_pc <description> <dir> <key> <expected output>
+    local got
+    got=$(cd "$2" && "$pc" "$3" 2>/dev/null)
+    if [[ "$got" == "$4" ]]; then echo "ok    project-config: $1"
+    else echo "FAIL  project-config: $1 (got '$got', want '$4')"; fails=$((fails + 1)); fi
+}
+check_pc "default base_branch"          "$on"  base_branch main
+check_pc "default integrator_name"      "$on"  integrator_name integrator
+check_pc "default worktree_prefix"      "$on"  worktree_prefix on-
+check_pc "default protected_branches"   "$on"  protected_branches ""
+check_pc "configured base_branch"       "$z"   base_branch dev
+check_pc "configured integrator_name"   "$z"   integrator_name integrador
+check_pc "configured protected_branches" "$z"  protected_branches "promote/*"
+bad_cfg="$work/bad-cfg"
+new_repo "$bad_cfg" yes
+for json in '{"base_brnch": "dev"}' '{"integrator_name": "Integrador"}' '{"base_branch": "a..b"}' \
+            '{"protected_branches": "main"}' '[]' '{"base_branch": '; do
+    printf '%s\n' "$json" > "$bad_cfg/.claude/multi-agent-herdr.json"
+    (cd "$bad_cfg" && "$pc" >/dev/null 2>&1); status=$?
+    if [[ $status == 1 ]]; then echo "ok    project-config: rejects $json"
+    else echo "FAIL  project-config: accepted $json (exit $status)"; fails=$((fails + 1)); fi
+done
+(cd "$on" && "$pc" no_such_key >/dev/null 2>&1); [[ $? == 2 ]] \
+    && echo "ok    project-config: unknown key asked exits 2" \
+    || { echo "FAIL  project-config: unknown key asked"; fails=$((fails + 1)); }
+# An invalid file must not open the guards: the defaults still protect main.
+expect 2 "settings: invalid file, main still protected" "$g" "$(bash_cmd 'git push origin HEAD:main' "$bad_cfg")"
+expect 2 "settings: invalid file, main worktree guarded" "$g" "$(bash_cmd 'git commit -m x' "$bad_cfg")"
 
 w="$hooks/guard-main-worktree.sh"
 expect 2 "edit: file in main worktree"                "$w" "$(file_op "$on/a/b/new.md")"
@@ -149,7 +202,8 @@ fi
 target="$work/target"
 new_repo "$target" no
 (cd "$target" && bash "$root/install.sh" >/dev/null) || { echo "FAIL  install: exit $?"; fails=$((fails + 1)); }
-for f in CLAUDE.md scripts/check.sh scripts/integrator.sh .claude/prompts/integrator.md .claude/settings.json; do
+for f in CLAUDE.md scripts/check.sh scripts/integrator.sh .claude/prompts/integrator.md .claude/settings.json \
+         .claude/multi-agent-herdr.json; do
     if [[ -f "$target/$f" ]]; then echo "ok    install: $f"
     else echo "FAIL  install: missing $f"; fails=$((fails + 1)); fi
 done
@@ -196,6 +250,21 @@ new_repo "$sp" no
 (cd "$sp" && "$root/plugin/scripts/new-worktree.sh" feat/y >/dev/null 2>&1)
 if [[ -d "$work/with space/repo-y" ]]; then echo "ok    new-worktree: repository path with spaces"
 else echo "FAIL  new-worktree: repository path with spaces"; fails=$((fails + 1)); fi
+# With settings: ../chat-<name>, cut from the base branch (dev has a commit main lacks).
+git -C "$cfg" -c user.email=t@t -c user.name=t commit --quiet --allow-empty -m "dev only" >/dev/null
+git -C "$cfg" branch -f dev HEAD && git -C "$cfg" reset --quiet --hard HEAD~1
+(cd "$cfg" && "$root/plugin/scripts/new-worktree.sh" feat/w >/dev/null 2>&1)
+if [[ -d "$work/chat-w" ]] && [[ "$(git -C "$work/chat-w" rev-parse HEAD)" == "$(git -C "$cfg" rev-parse dev)" ]]; then
+    echo "ok    new-worktree: worktree_prefix and base_branch"
+else
+    echo "FAIL  new-worktree: worktree_prefix and base_branch"; fails=$((fails + 1))
+fi
+(cd "$bad_cfg" && "$root/plugin/scripts/new-worktree.sh" feat/v >/dev/null 2>&1); status=$?
+if [[ $status != 0 ]] && ! git -C "$bad_cfg" rev-parse --verify --quiet feat/v >/dev/null; then
+    echo "ok    new-worktree: invalid settings stop before creating anything"
+else
+    echo "FAIL  new-worktree: invalid settings (exit $status)"; fails=$((fails + 1))
+fi
 
 # agents-in-repo.py: branch -> worktree -> live agent, with a fake herdr on PATH.
 fake="$work/bin"; mkdir -p "$fake"
@@ -258,6 +327,15 @@ check_claim "outside herdr"            1 ""                         w1:p1 HERDR_
 check_claim "pane without an agent"    2 ""                         w9:p9
 sed -i.bak 's/"name":"integrator",//' "$FAKE_AGENTS" && rm -f "$FAKE_AGENTS.bak"
 check_claim "unnamed: renames itself"  0 "rename w1:p1 integrator"  w1:p1
+# With settings, the name comes from integrator_name.
+: > "$FAKE_LOG"
+(cd "$cfg" && env PATH="$fake:$PATH" HERDR_ENV=1 CLAUDE_ROLE=integrator FAKE_PANE=w1:p1 \
+    "$claim" >/dev/null 2>&1); status=$?
+if [[ $status == 0 && "$(cat "$FAKE_LOG")" == "rename w1:p1 integrador" ]]; then
+    echo "ok    claim-integrator: configured integrator_name"
+else
+    echo "FAIL  claim-integrator: configured name (exit $status, log '$(cat "$FAKE_LOG")')"; fails=$((fails + 1))
+fi
 
 # Every `herdr agent prompt` in the skills sends the header: a literal message starts with it,
 # and a "$VAR" message is assigned with the header as its first line in the same file.

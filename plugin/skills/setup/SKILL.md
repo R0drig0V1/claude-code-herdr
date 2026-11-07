@@ -55,7 +55,14 @@ for f in "$root"/.claude/settings.json "$root"/.claude/settings.local.json; do
     | select(.key | test("^multi-agent(-herdr)?@")) | "\($f): \(.key) = \(.value)"' "$f"
 done
 ls "$root"/scripts/check.sh "$root"/scripts/integrator.sh "$root"/.claude/prompts/integrator.md
+"${CLAUDE_PLUGIN_ROOT}/scripts/project-config.py" --root "$root"; echo "exit=$?"
 ```
+
+- The settings (`.claude/multi-agent-herdr.json`): report `base_branch` and
+  `integrator_name`. A non-zero exit means the file is invalid: show the error. A project
+  whose pull requests do not target `main` (an integration branch such as `dev`) or whose
+  integrator has another herdr name needs this file; offer to write it and only write it
+  after the user confirms the values.
 
 - This plugin not enabled, or project files missing: offer the installer from this plugin's
   repository (`install.sh --dry-run` first, then without it after the user confirms).
@@ -73,5 +80,5 @@ the exact diff and get confirmation before writing.
 ## 5. Report
 
 One line each: herdr version (client/server), Claude integration state, project state
-(plugin enabled, project files, old multi-agent enabled or not), and what was installed or
-skipped.
+(plugin enabled, project files, base branch and integrator name, old multi-agent enabled or
+not), and what was installed or skipped.

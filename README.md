@@ -64,6 +64,38 @@ wins, so `false` there turns them off), and `dispatch`, `pr` and `integrate` sto
 Claude integration (`~/.claude/hooks/`) and config (`~/.config/herdr/`) are global and are not
 touched by this plugin.
 
+### Configuration
+
+By default pull requests target `main`, the integrator's herdr agent is `integrator` and
+worktrees are `../<repo>-<name>`. A project that works otherwise says so in the optional,
+versioned `.claude/multi-agent-herdr.json` at the root of its main worktree (the installer
+copies one with the defaults):
+
+```json
+{
+  "base_branch": "dev",
+  "integrator_name": "integrador",
+  "protected_branches": ["promote/*"],
+  "worktree_prefix": "chat-"
+}
+```
+
+| Key | Default | Used for |
+|-----|---------|----------|
+| `base_branch` | `main` | PR base (`pr`), worktree start point (`new-worktree.sh`), the queue, merge and push target (`integrate`), the argument of `scripts/worktree-setup.sh` in `verify-merge.sh` |
+| `integrator_name` | `integrator` | the herdr name `claim-integrator.sh` takes, `pr` announces to, the Bash guard lets agents prompt, and `scripts/integrator.sh` names the session |
+| `protected_branches` | `[]` | extra `fnmatch` patterns only the integrator may push; `main` and `base_branch` are always protected |
+| `worktree_prefix` | `<repo>-` | development worktrees are `../<worktree_prefix><name>` |
+
+`plugin/scripts/project-config.py` is the only reader: it prints one key
+(`project-config.py base_branch`) or all of them as JSON, and rejects unknown keys and invalid
+values (keys starting with `$`, such as `$comment`, are ignored). Scripts and skills stop on an
+invalid file; the Bash guard falls back to the defaults, so `main` stays protected.
+
+With a `base_branch` other than `main`, the plugin never moves `main`: `integrate` follows
+the promotion procedure the project documents in `CLAUDE.md` or
+`.claude/prompts/integrator.md`, and pushes nothing to `main` when there is none.
+
 ### Migrating a project from multi-agent
 
 1. In `.claude/settings.json`, replace `multi-agent@claude-code-multi-agent` with
@@ -84,8 +116,9 @@ touched by this plugin.
 | Development agent | Started by `dispatch` inside its worktree: work, `/multi-agent-herdr:commit`, `/multi-agent-herdr:pr` |
 | Before a phase | `/multi-agent-herdr:improve-plan` (red-team review of `docs/phases/`) |
 
-The integrator's herdr agent must be named `integrator`: `dispatch` and `integrate` take the
-name first (`scripts/claim-integrator.sh`). herdr names are unique per **server**, not per
+The integrator's herdr agent must be named `integrator` (or the project's
+`integrator_name`): `dispatch` and `integrate` take the name first
+(`scripts/claim-integrator.sh`). herdr names are unique per **server**, not per
 repository, so run **one integrator per herdr server**; `pr` only announces to an `integrator`
 whose pane is in its own repository's main worktree, so another repository's integrator never
 receives it.
@@ -107,11 +140,12 @@ receives it.
 | Hook | `notify.sh` | Sound and terminal bell on Stop / Notification |
 | Script | `new-worktree.sh`, `verify-merge.sh` | Worktree creation; verification gate whose exit code is the verdict |
 | Script | `agents-in-repo.py` | Read-only: live herdr agents whose pane cwd is in a worktree of this repository (`--branch`, `--name`, `--main-worktree`) |
-| Script | `claim-integrator.sh` | Gives the integrator session the herdr name `integrator`, or refuses when another agent holds it |
+| Script | `claim-integrator.sh` | Gives the integrator session its herdr name (`integrator_name`), or refuses when another agent holds it |
+| Script | `project-config.py` | Reads and validates `.claude/multi-agent-herdr.json` (see Configuration) |
 
 Project-owned files from `template/`: `CLAUDE.md`, `scripts/check.sh` (your definition of
-green), `scripts/integrator.sh`, `.claude/prompts/integrator.md`, `.claude/settings.json` and
-the `docs/{phases,decisions,plan-reviews}/` indexes.
+green), `scripts/integrator.sh`, `.claude/prompts/integrator.md`, `.claude/settings.json`,
+`.claude/multi-agent-herdr.json` and the `docs/{phases,decisions,plan-reviews}/` indexes.
 
 ## Rules
 
