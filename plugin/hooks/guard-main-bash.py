@@ -6,10 +6,16 @@ and the block message differ).
 
 Only the integrator session (CLAUDE_ROLE=integrator) may change the main worktree or `main`
 (see "Multi-agent workflow" in CLAUDE.md). It only acts on repositories that enabled the
-plugin in `.claude/settings.json` or `.claude/settings.local.json`. There, for every other
+plugin in `.claude/settings.json` or `.claude/settings.local.json` (`enabledPlugins` value
+`true`; `settings.local.json` wins when it sets the key). There, for every other
 session, it blocks:
 
 * from any worktree: `git push` to `main` (or `--all` / `--mirror`) and `gh pr merge`.
+* from any worktree, herdr commands that type into another pane or take over another agent:
+  `herdr agent send-keys|attach|rename`, `herdr pane run|send-keys|send-text`,
+  `herdr terminal attach|session`, and `herdr agent prompt` to any target but `integrator`.
+  Without this, a development agent could run `git push origin main` in the integrator's pane
+  or answer its approval dialog, outside any guarded Bash call.
 * in the main worktree: git commands that change the checkout or its history (commit, merge,
   checkout, switch, reset, stash...), dependency changes (`uv add|remove|lock|sync`,
   `npm|pnpm|yarn install|add|remove`...), formatters that rewrite files, and file writes
@@ -71,16 +77,19 @@ def enabled(common_dir: str) -> bool:
     """Whether the repository with this common git dir enabled the plugin for the project.
 
     A user-scope install must not lock the main checkout of every repository, so the guards
-    only apply where `.claude/settings.json` or `.claude/settings.local.json` enables it.
+    only apply where `enabledPlugins` maps the plugin id to `true`. `settings.local.json`
+    overrides `settings.json` when it sets the key (as in Claude Code); a missing or
+    unparseable file counts as not setting it.
     """
     root = os.path.dirname(common_dir)
-    for name in ("settings.json", "settings.local.json"):
+    for name in ("settings.local.json", "settings.json"):
         try:
             with open(os.path.join(root, ".claude", name)) as f:
-                if PLUGIN_ID in f.read():
-                    return True
-        except OSError:
+                value = (json.load(f).get("enabledPlugins") or {}).get(PLUGIN_ID)
+        except (OSError, ValueError, AttributeError):
             continue
+        if value is not None:
+            return value is True
     return False
 
 
@@ -120,6 +129,31 @@ def rewrites_files(prog: str, args: list[str]) -> bool:
     if prog in {"gofmt", "rustfmt"}:
         return "-w" in args or prog == "rustfmt"
     return False
+
+
+# herdr commands that type into, or take over, a pane other than the caller's own.
+HERDR_INPUT = {
+    ("agent", "send-keys"), ("agent", "attach"), ("agent", "rename"), ("pane", "run"),
+    ("pane", "send-keys"), ("pane", "send-text"), ("terminal", "attach"), ("terminal", "session"),
+}  # fmt: skip
+HERDR_VALUE_OPTS = {"--session", "--machine", "--remote", "--remote-keybindings"}
+
+
+def herdr_reason(args: list[str]) -> str | None:
+    """Reason to block a `herdr ...` invocation from a non-integrator session, or None."""
+    words = list(args)
+    while words and words[0].startswith("-"):  # global options such as --machine <label>
+        opt = words.pop(0)
+        if opt in HERDR_VALUE_OPTS and words:
+            words.pop(0)
+    group, sub = (words + ["", ""])[:2]
+    if (group, sub) in HERDR_INPUT:
+        return f"`herdr {group} {sub}` sends input to another pane; only the integrator may"
+    if (group, sub) == ("agent", "prompt"):
+        target = next((w for w in words[2:] if not w.startswith("-")), "")
+        if target != "integrator":
+            return "development agents may `herdr agent prompt` only the agent `integrator`"
+    return None
 
 
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?=\n|$)", re.S)
@@ -180,6 +214,9 @@ def check_segment(words: list[str], cwd: str) -> str | None:
 
     if prog == "gh" and args[:2] == ["pr", "merge"] and guarded_repo(cwd):
         return "only the integrator merges pull requests"
+
+    if prog == "herdr" and guarded_repo(cwd):
+        return herdr_reason(args)
 
     if prog == "git":
         git_cwd = cwd

@@ -15,7 +15,7 @@
 #   and the project skills (/integrate is its procedure).
 set -euo pipefail
 
-repo_root=$(git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir | xargs dirname)
+repo_root=$(dirname "$(git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir)")
 cd "$repo_root"
 [[ "${HERDR_ENV:-}" == 1 ]] || { echo "run it inside a herdr pane (multi-agent-herdr is herdr only)" >&2; exit 1; }
 CLAUDE_ROLE=integrator exec claude --name integrator \

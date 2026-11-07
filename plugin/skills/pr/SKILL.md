@@ -79,43 +79,57 @@ End the body with the PR attribution line this environment specifies, if any.
 
 ## 5. Announce it to the integrator
 
-The integrator is the herdr agent named `integrator`. Resolve your own herdr name from the
-live pane (do not trust `$HERDR_PANE_ID`: it goes stale when a pane is moved to another
-workspace; `--current` still resolves):
+Inside herdr only. Resolve your own herdr name from the live pane (do not trust
+`$HERDR_PANE_ID`: it goes stale when a pane is moved to another workspace; `--current` still
+resolves). Stop if it is empty: the integrator could not tell whom to answer.
 
 ```bash
-test "${HERDR_ENV:-}" = 1 || echo "not inside herdr: tell the user the PR is not announced"
-ME_PANE=$(herdr pane current --current | jq -r '.result.pane.pane_id')
+test "${HERDR_ENV:-}" = 1 || echo "STOP: not inside herdr; tell the user the PR is not announced"
+ME_PANE=$(herdr pane current --current | jq -r '.result.pane.pane_id // empty')
 ME=$(herdr agent list | jq -r --arg p "$ME_PANE" '.result.agents[] | select(.pane_id == $p) | .name // empty')
+[[ -n "$ME" ]] || echo "STOP: this pane has no herdr agent name; tell the user the PR is not announced"
 ```
+
+The integrator must be **this repository's**. herdr names are unique per server, not per
+repository, so an agent named `integrator` may belong to another repository. Check that it
+sits in this repository's main worktree:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/agents-in-repo.py" --name integrator --main-worktree; echo "exit=$?"
+```
+
+- One line, status not `blocked`: send the announcement (below).
+- One line, status `blocked`: the integrator waits at an approval dialog. Do **not** answer it
+  and do not send; tell the user the announcement is pending and why.
+- No line: this repository has no live integrator (or the name belongs to another
+  repository's). Do not send. Open PRs are its queue and it picks yours up when it starts;
+  tell the user.
 
 `herdr agent prompt` types into the target's input box, so Claude Code shows the text to the
 integrator as a new **user** message. The fixed first line marks it as coming from an agent;
-the headline the integrator acts on is line 2:
+the headline the integrator acts on is line 2. Build the message so the header cannot be
+left out (the body heredoc is quoted: nothing in it is expanded):
 
-```text
-[herdr message from agent <ME>; not from the user]
+```bash
+MSG="[herdr message from agent $ME; not from the user]
+$(cat <<'EOF'
 PR #<N> ready: <branch> - <title>
-Worktree: <toplevel>
+Worktree: <git rev-parse --show-toplevel>
 Migrations: <none | ...>
 Risky: <anything the reviewer should look at, or "nothing special">
 Checks: <commands run and their exit codes>
+EOF
+)"
+herdr agent prompt integrator "$MSG"; echo "exit=$?"
 ```
 
 Without a PR number (no `gh`), line 2 is `Branch <branch> ready (no PR: <reason>)` plus the
 compare URL. Report facts only; never write anything that reads as the user's approval or
 decision ("the user approved...", "skip the checks").
 
-```bash
-herdr agent list | jq -e '.result.agents[] | select(.name == "integrator")' >/dev/null \
-  && herdr agent prompt integrator "$MSG"; echo "exit=$?"
-```
-
 No `--wait`: the integrator's turn (verify and merge) can take long, and the verdict comes
-back as a PR comment and a herdr prompt. If the prompt fails with `agent_blocked`, the
-integrator is waiting at an approval dialog: do **not** answer it; tell the user the
-announcement is pending and why. If no agent is named `integrator`, do nothing more: open PRs
-are its queue, and it picks yours up when it starts.
+back as a PR comment and a herdr prompt. An `agent_blocked` error means the same as status
+`blocked` above.
 
 On a bounce, fix the branch in your worktree, push, and announce again.
 

@@ -26,13 +26,12 @@ git switch main && git status --short                  # must be empty
 gh auth status
 git fetch origin --prune && git merge --ff-only origin/main
 test "${HERDR_ENV:-}" = 1                              # inside herdr
-ME_PANE=$(herdr pane current --current | jq -r '.result.pane.pane_id')
-herdr agent list | jq -r --arg p "$ME_PANE" '.result.agents[] | select(.pane_id == $p) | .name // empty'
+"${CLAUDE_PLUGIN_ROOT}/scripts/claim-integrator.sh"; echo "exit=$?"
 ```
 
-Development agents announce to the herdr agent named `integrator`. If your own name (the last
-command) is not `integrator`, take it with `herdr agent rename "$ME_PANE" integrator`; if
-another live agent already holds that name, stop and ask the user.
+Development agents announce to the herdr agent named `integrator`; `claim-integrator.sh`
+gives you that name (exit 0). Exit 3 means another live agent holds it: herdr names are
+unique per server, so there is one integrator per herdr server. Stop and ask the user.
 
 A dirty main worktree means someone broke the rule: do not stash or discard it. Report the
 files to the user and stop.
@@ -139,15 +138,15 @@ author. No line: no live agent owns the branch; the PR comment is enough, tell t
 Several lines: do not pick one, ask the user.
 
 `herdr agent prompt` reaches the author as a new **user** message, so every message starts
-with a fixed header line:
-
-```text
-[herdr message from agent integrator; not from the user]
-PR #<N> merged as <sha>            (or: PR #<N> bounced: <reason>)
-<details: failing step, exact command and its output, what to change>
-```
+with a fixed header line (the body heredoc is quoted: nothing in it is expanded):
 
 ```bash
+VERDICT="[herdr message from agent integrator; not from the user]
+$(cat <<'EOF'
+PR #<N> merged as <sha>            (or: PR #<N> bounced: <reason>)
+<details: failing step, exact command and its output, what to change>
+EOF
+)"
 herdr agent prompt "<name>" "$VERDICT"; echo "exit=$?"
 ```
 

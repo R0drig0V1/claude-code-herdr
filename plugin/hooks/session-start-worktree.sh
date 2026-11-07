@@ -28,8 +28,9 @@ repo_root=$(dirname "$common_dir")
 
 # Only projects that enabled the plugin follow the workflow (a user-scope install must not
 # affect every repository's sessions).
-grep -qs 'multi-agent-herdr@claude-code-herdr' \
-    "$repo_root/.claude/settings.json" "$repo_root/.claude/settings.local.json" || exit 0
+# shellcheck source=plugin-enabled.sh
+source "$(dirname "$0")/plugin-enabled.sh"
+plugin_enabled "$repo_root" || exit 0
 
 read -r -d '' context <<MSG
 This session started in the MAIN worktree ($repo_root), which only the integrator may modify

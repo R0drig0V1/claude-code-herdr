@@ -49,9 +49,11 @@ herdr integration install claude
 ## 3. The project (only inside a git repository)
 
 ```bash
-root=$(git rev-parse --path-format=absolute --git-common-dir | xargs dirname)
-grep -l 'multi-agent-herdr@claude-code-herdr' "$root"/.claude/settings*.json
-grep -l 'multi-agent@claude-code-multi-agent' "$root"/.claude/settings*.json
+root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+for f in "$root"/.claude/settings.json "$root"/.claude/settings.local.json; do
+  [ -f "$f" ] && jq -r --arg f "$f" '.enabledPlugins // {} | to_entries[]
+    | select(.key | test("^multi-agent(-herdr)?@")) | "\($f): \(.key) = \(.value)"' "$f"
+done
 ls "$root"/scripts/check.sh "$root"/scripts/integrator.sh "$root"/.claude/prompts/integrator.md
 ```
 

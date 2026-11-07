@@ -11,7 +11,8 @@
 # feature worktree is also stopped from editing the main checkout by absolute path. A file is
 # in the main worktree when its repository's git dir equals the common git dir (linked
 # worktrees have their own git dir under .git/worktrees/). Files outside any git repository,
-# and repositories that did not enable the plugin in their .claude/settings(.local).json, are
+# and repositories that did not enable the plugin in their .claude/settings(.local).json
+# (plugin-enabled.sh), are
 # allowed. Exit code 2 blocks the tool call and shows stderr to the agent.
 set -euo pipefail
 
@@ -28,8 +29,9 @@ git_dir=$(git -C "$dir" rev-parse --absolute-git-dir 2>/dev/null) || exit 0
 common_dir=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
 
 repo_root=$(dirname "$common_dir")
-grep -qs 'multi-agent-herdr@claude-code-herdr' \
-    "$repo_root/.claude/settings.json" "$repo_root/.claude/settings.local.json" || exit 0
+# shellcheck source=plugin-enabled.sh
+source "$(dirname "$0")/plugin-enabled.sh"
+plugin_enabled "$repo_root" || exit 0
 
 if [[ "$git_dir" == "$common_dir" ]]; then
     cat >&2 <<MSG

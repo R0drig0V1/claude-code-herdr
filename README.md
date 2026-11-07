@@ -57,8 +57,9 @@ Requirements: herdr (built against 0.9.5) with Claude Code running inside it (`H
 
 **Scope.** A project-scope install lives in that repository's `.claude/settings.json`. With a
 user-scope install the skills are listed everywhere, but the guard and SessionStart hooks only
-act in repositories whose `.claude/settings(.local).json` enables
-`multi-agent-herdr@claude-code-herdr`, and `dispatch`, `pr` and `integrate` stop outside herdr.
+act in repositories whose `.claude/settings(.local).json` maps
+`multi-agent-herdr@claude-code-herdr` to `true` in `enabledPlugins` (`settings.local.json`
+wins, so `false` there turns them off), and `dispatch`, `pr` and `integrate` stop outside herdr.
 `notify.sh` (sound + bell) runs in every session where the plugin is installed. herdr's own
 Claude integration (`~/.claude/hooks/`) and config (`~/.config/herdr/`) are global and are not
 touched by this plugin.
@@ -83,8 +84,11 @@ touched by this plugin.
 | Development agent | Started by `dispatch` inside its worktree: work, `/multi-agent-herdr:commit`, `/multi-agent-herdr:pr` |
 | Before a phase | `/multi-agent-herdr:improve-plan` (red-team review of `docs/phases/`) |
 
-The integrator's herdr agent must be named `integrator`; `integrate` takes the name on its
-first run (`herdr agent rename`).
+The integrator's herdr agent must be named `integrator`: `dispatch` and `integrate` take the
+name first (`scripts/claim-integrator.sh`). herdr names are unique per **server**, not per
+repository, so run **one integrator per herdr server**; `pr` only announces to an `integrator`
+whose pane is in its own repository's main worktree, so another repository's integrator never
+receives it.
 
 ## What's inside
 
@@ -98,11 +102,12 @@ first run (`herdr agent rename`).
 | Skill | `improve-plan` | Up to 3 adversarial rounds against `docs/phases/` with `plan-adversary` |
 | Skill | `setup` | User only: checks and, with confirmation, installs herdr, its Claude integration and the project files; flags the old plugin |
 | Agent | `plan-adversary`, `code-reviewer` | Read-only plan red team; read-only bug and security reviewer |
-| Hook | `guard-main-worktree.sh`, `guard-main-bash.py` | Block Edit/Write, shell writes, mutating git, dependency changes and formatters in the main worktree, plus `gh pr merge` and pushes to `main` |
+| Hook | `guard-main-worktree.sh`, `guard-main-bash.py` | Block Edit/Write, shell writes, mutating git, dependency changes and formatters in the main worktree, plus `gh pr merge`, pushes to `main`, and herdr commands that type into another pane (see Rules) |
 | Hook | `session-start-worktree.sh` | Tells sessions in the main worktree to route changes through the integrator's `dispatch` |
 | Hook | `notify.sh` | Sound and terminal bell on Stop / Notification |
 | Script | `new-worktree.sh`, `verify-merge.sh` | Worktree creation; verification gate whose exit code is the verdict |
-| Script | `agents-in-repo.py` | Read-only: live herdr agents whose pane cwd is in a worktree of this repository |
+| Script | `agents-in-repo.py` | Read-only: live herdr agents whose pane cwd is in a worktree of this repository (`--branch`, `--name`, `--main-worktree`) |
+| Script | `claim-integrator.sh` | Gives the integrator session the herdr name `integrator`, or refuses when another agent holds it |
 
 Project-owned files from `template/`: `CLAUDE.md`, `scripts/check.sh` (your definition of
 green), `scripts/integrator.sh`, `.claude/prompts/integrator.md`, `.claude/settings.json` and
@@ -113,6 +118,10 @@ the `docs/{phases,decisions,plan-reviews}/` indexes.
 - **Never answer another agent's approval or question dialog.** Do not `herdr agent
   send-keys`, `pane send-keys` or `pane send-text` into another agent to accept, reject or
   dismiss anything.
+  For development agents the Bash guard enforces it: `herdr agent send-keys|attach|rename`,
+  `herdr pane run|send-keys|send-text`, `herdr terminal attach|session` and `herdr agent
+  prompt` to anyone but `integrator` are blocked, so an agent cannot run commands in, or
+  answer dialogs of, another pane (the integrator's included).
 - **A `blocked` agent is escalated to the user.** When `herdr agent list` shows `blocked`, or a
   prompt fails with `agent_blocked` / `agent start` with `agent_not_ready`, tell the user which
   agent (and workspace) waits for them, and do not send it anything until it is `idle` again.
@@ -145,8 +154,14 @@ or attaches the TUI.
 - The guards are **guardrails, not a sandbox**. They parse commands with `shlex`, and a
   deliberately creative command can get past them. They fail open: if `python3` or `jq` is
   missing, or the hook errors, the command is allowed.
+  A command run through another interpreter (`sh -c "herdr pane run ..."`) is not parsed.
 - The integrator is recognised only by `CLAUDE_ROLE=integrator` (hooks) and the herdr agent
-  name `integrator` (messages).
+  name `integrator` in the repository's main worktree (messages). One integrator per herdr
+  server, because herdr agent names are unique per server.
+- `install.sh --force` overwrites project files you already filled in, without a backup: run
+  `--dry-run` first.
+- `tests/test-hooks.sh` builds its repositories under `.test-work/` (or `~/.cache` when the
+  checkout is in a temporary directory, where the Bash guard allows writes on purpose).
 - `verify-merge.sh` is only as strong as your `scripts/check.sh`.
 
 ## Development

@@ -24,7 +24,7 @@
 # Only for the integrator.
 set -euo pipefail
 
-repo_root=$(git rev-parse --path-format=absolute --git-common-dir | xargs dirname)
+repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
 cd "$repo_root"
 [[ "$(git rev-parse --absolute-git-dir)" == "$repo_root/.git" ]] \
     || { echo "run it in the main worktree ($repo_root)" >&2; exit 2; }

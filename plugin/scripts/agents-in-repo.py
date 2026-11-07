@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """List the live herdr agents that work inside a worktree of the current git repository.
 
-Part of the multi-agent-herdr plugin. The `reply` skill uses it to resolve the author of a
-pull request (branch -> worktree -> herdr agent), and to find the other live development
-agents to tell that `main` moved. It only reads state: `git worktree list --porcelain` and
+Part of the multi-agent-herdr plugin. The `integrate` skill uses it to resolve the author of
+a pull request (branch -> worktree -> herdr agent) and the other live development agents to
+tell that `main` moved; the `pr` skill uses it to find this repository's integrator (herdr
+names are unique per server, not per repository, so a name alone could reach another
+repository's integrator). It only reads state: `git worktree list --porcelain` and
 `herdr agent list`; it never sends input to any pane.
 
-Usage: agents-in-repo.py [--branch BRANCH] [--exclude NAME ...]
+Usage: agents-in-repo.py [--branch BRANCH] [--name NAME] [--main-worktree] [--exclude NAME ...]
 
 Prints one tab-separated line per matching agent:
 
@@ -33,7 +35,10 @@ import sys
 
 
 def worktrees() -> list[tuple[str, str]]:
-    """(realpath, branch short name or '(detached)') for every worktree of this repository."""
+    """(realpath, branch short name or '(detached)') for every worktree of this repository.
+
+    The main worktree comes first, as `git worktree list` prints it.
+    """
     out = subprocess.run(
         ["git", "worktree", "list", "--porcelain"],
         capture_output=True, text=True, check=True,
@@ -66,6 +71,9 @@ def owner(cwd: str, trees: list[tuple[str, str]]) -> tuple[str, str] | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--branch", help="only the agent(s) in this branch's worktree")
+    parser.add_argument("--name", help="only the agent with this herdr name")
+    parser.add_argument("--main-worktree", action="store_true",
+                        help="only agents in the main worktree (the integrator's checkout)")
     parser.add_argument("--exclude", action="append", default=[], help="skip this agent name")
     args = parser.parse_args()
 
@@ -86,7 +94,7 @@ def main() -> int:
 
     for agent in agents:
         name = agent.get("name")
-        if not name or name in args.exclude:
+        if not name or name in args.exclude or (args.name and name != args.name):
             continue
         match = None
         for key in ("cwd", "foreground_cwd"):
@@ -95,6 +103,8 @@ def main() -> int:
                 if match:
                     break
         if not match or (args.branch and match[1] != args.branch):
+            continue
+        if args.main_worktree and match[0] != trees[0][0]:
             continue
         print("\t".join([name, agent.get("pane_id", ""), agent.get("agent_status", ""),
                          match[1], match[0]]))

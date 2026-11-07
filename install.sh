@@ -52,6 +52,14 @@ if [[ -z "$src" ]]; then
     src="$tmp/src"
 fi
 
+# An existing .claude/settings.json must be valid JSON before anything is copied: the merge
+# below would otherwise abort halfway, after the template files were written.
+settings="$target/.claude/settings.json"
+if [[ -e "$settings" ]] && command -v jq >/dev/null 2>&1 && ! jq empty "$settings" 2>/dev/null; then
+    echo "error: $settings is not valid JSON; fix it and rerun (nothing was written)" >&2
+    exit 1
+fi
+
 copied=() skipped=()
 do_copy() {  # do_copy <relative path>
     local rel="$1" dest="$target/$1"
@@ -69,12 +77,12 @@ while IFS= read -r rel; do
     do_copy "$rel"
 done < <(cd "$src/template" && find . -type f | sed 's|^\./||' | sort)
 
-# .claude/settings.json: enable the marketplace and the plugin for the project.
-settings="$target/.claude/settings.json"
+# .claude/settings.json: enable the marketplace and the plugin for the project. "Enabled"
+# means enabledPlugins maps the plugin id to true (a `false` entry is merged to true).
 settings_note=""
 if [[ ! -e "$settings" ]]; then
     do_copy ".claude/settings.json"
-elif grep -q "$PLUGIN" "$settings"; then
+elif command -v jq >/dev/null 2>&1 && jq -e --arg id "$PLUGIN" '.enabledPlugins[$id] == true' "$settings" >/dev/null; then
     settings_note="already enables $PLUGIN"
 elif command -v jq >/dev/null 2>&1; then
     settings_note="merged the marketplace and plugin into it"
@@ -92,7 +100,12 @@ added=()
 for line in ".claude/settings.local.json" ".env"; do
     if ! grep -qxF "$line" "$gitignore" 2>/dev/null; then
         added+=("$line")
-        $dry_run || printf '%s\n' "$line" >> "$gitignore"
+        $dry_run && continue
+        # A last line without its newline would be glued to ours ("node_modules.env").
+        if [[ -s "$gitignore" && -n "$(tail -c 1 "$gitignore")" ]]; then
+            printf '\n' >> "$gitignore"
+        fi
+        printf '%s\n' "$line" >> "$gitignore"
     fi
 done
 

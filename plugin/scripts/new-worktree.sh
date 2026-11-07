@@ -19,7 +19,7 @@ set -euo pipefail
 branch="${1:?usage: new-worktree.sh <type>/<short-kebab-name>}"
 [[ "$branch" == */* ]] || { echo "branch must look like <type>/<name>, got: $branch" >&2; exit 1; }
 
-repo_root=$(git rev-parse --path-format=absolute --git-common-dir | xargs dirname)
+repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
 name="${branch#*/}"
 worktree="$(dirname "$repo_root")/$(basename "$repo_root")-${name}"
 

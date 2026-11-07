@@ -21,6 +21,20 @@ All notable changes to this project are documented here. The format follows
 - Agents `plan-adversary` and `code-reviewer`, guard hooks, `notify.sh`, `new-worktree.sh`,
   `verify-merge.sh`, `install.sh`, `template/`, smoke tests and CI, ported from multi-agent.
 
+- The Bash guard blocks herdr commands that type into another pane (`agent
+  send-keys|attach|rename`, `pane run|send-keys|send-text`, `terminal attach|session`, and
+  `agent prompt` to anyone but `integrator`) for development agents.
+- `scripts/claim-integrator.sh`, run by `dispatch` and `integrate`, gives the integrator the
+  herdr name `integrator`; `pr` only announces to the `integrator` in its own repository's
+  main worktree (`agents-in-repo.py --name integrator --main-worktree`).
+
+### Fixed (compared with multi-agent)
+- Hooks and `install.sh` read `enabledPlugins` as JSON: a `false` entry no longer enables the
+  guards, and `settings.local.json` overrides `settings.json`.
+- `install.sh` adds a newline before appending to a `.gitignore` that lacks one, and stops
+  before copying anything when `.claude/settings.json` is not valid JSON.
+- `new-worktree.sh`, `verify-merge.sh` and `integrator.sh` work in paths with spaces.
+
 ### Removed (compared with multi-agent)
 - The `worktree` skill and `EnterWorktree`: development agents start inside their worktree
   through `dispatch`. `SendMessage`/`ListAgents` fallbacks: this plugin is herdr only.
