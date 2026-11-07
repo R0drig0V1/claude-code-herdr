@@ -48,6 +48,25 @@ All notable changes to this project are documented here. The format follows
   `uv.lock`). `ci.yml` now runs with `contents: read`, pins `actions/checkout` by SHA and
   does not persist credentials. `SECURITY.md`: private vulnerability reporting.
 
+### Fixed
+- `install.sh` sets an enabled `multi-agent@claude-code-multi-agent` (the plugin this one
+  replaces) to `false` in `.claude/settings.json` and reports `disabled ...`; before, it added
+  `multi-agent-herdr` next to it and both plugins' guards ran. Idempotent: a rerun finds it
+  `false` and writes nothing. A `.claude/settings.local.json` that still enables it gets a
+  warning, not an edit.
+- `dispatch` found the new worktree with an inline `awk '... substr($0,10) ... $0==b ...'`.
+  Claude Code substitutes `$N` (shorthand for `$ARGUMENTS[N]`), `$ARGUMENTS[N]`, `$ARGUMENTS`
+  and declared `$name` arguments in a skill's content
+  ([Available string substitutions](https://code.claude.com/docs/en/skills#available-string-substitutions),
+  [Pass arguments to skills](https://code.claude.com/docs/en/skills#pass-arguments-to-skills)),
+  so the integrator received the dispatch arguments in place of `$0` and a broken command.
+  The lookup moved to `plugin/scripts/worktree-of.sh <branch>`. An audit of every SKILL.md and
+  agent found no other such token; the two `$ARGUMENTS` uses (`dispatch`, `improve-plan`) are
+  prose meant for substitution.
+- `tests/check-skill-substitutions.py`, run by `tests/test-hooks.sh` in CI, fails on a
+  positional token (`$N`, `${N}`, `$ARGUMENTS[N]`) anywhere in a SKILL.md, on `$ARGUMENTS` in
+  a fenced code block, and on a declared `arguments` name used in a code block.
+
 ### Fixed (compared with multi-agent)
 - Hooks and `install.sh` read `enabledPlugins` as JSON: a `false` entry no longer enables the
   guards, and `settings.local.json` overrides `settings.json`.

@@ -224,6 +224,47 @@ else
     echo "FAIL  install: settings.json merge"; fails=$((fails + 1))
 fi
 
+# A project that still enables the old multi-agent plugin: install.sh turns it off (both
+# plugins' guards would run otherwise), says so, and a second run changes nothing.
+old="$work/old-plugin"
+new_repo "$old" no
+printf '{"enabledPlugins": {"multi-agent@claude-code-multi-agent": true}, "model": "opus"}\n' \
+    > "$old/.claude/settings.json"
+out=$(cd "$old" && bash "$root/install.sh")
+if jq -e '.enabledPlugins["multi-agent@claude-code-multi-agent"] == false
+          and .enabledPlugins["multi-agent-herdr@claude-code-herdr"] == true and .model == "opus"' \
+    "$old/.claude/settings.json" >/dev/null && grep -q 'disabled multi-agent@claude-code-multi-agent' <<<"$out"; then
+    echo "ok    install: disables the old multi-agent plugin and says so"
+else
+    echo "FAIL  install: old plugin still enabled or not reported: $(jq -c .enabledPlugins "$old/.claude/settings.json")"
+    fails=$((fails + 1))
+fi
+before=$(cat "$old/.claude/settings.json")
+out=$(cd "$old" && bash "$root/install.sh")
+if [[ "$(cat "$old/.claude/settings.json")" == "$before" ]] && grep -q 'already enables multi-agent-herdr' <<<"$out" \
+    && ! grep -q 'disabled multi-agent@' <<<"$out"; then
+    echo "ok    install: second run with the old plugin off changes nothing"
+else
+    echo "FAIL  install: second run with the old plugin off: $out"; fails=$((fails + 1))
+fi
+# The new plugin already on, the old one too (settings written by hand): only the old one changes.
+printf '{"enabledPlugins": {"multi-agent@claude-code-multi-agent": true, "multi-agent-herdr@claude-code-herdr": true}}\n' \
+    > "$old/.claude/settings.json"
+out=$(cd "$old" && bash "$root/install.sh" --dry-run)
+if jq -e '.enabledPlugins["multi-agent@claude-code-multi-agent"] == true' "$old/.claude/settings.json" >/dev/null \
+    && grep -q 'disabled multi-agent@claude-code-multi-agent' <<<"$out"; then
+    echo "ok    install: --dry-run reports the old plugin without writing"
+else
+    echo "FAIL  install: --dry-run with the old plugin: $out"; fails=$((fails + 1))
+fi
+(cd "$old" && bash "$root/install.sh" >/dev/null)
+if jq -e '.enabledPlugins == {"multi-agent@claude-code-multi-agent": false, "multi-agent-herdr@claude-code-herdr": true}' \
+    "$old/.claude/settings.json" >/dev/null; then
+    echo "ok    install: both enabled by hand, the old one is turned off"
+else
+    echo "FAIL  install: both enabled by hand: $(jq -c .enabledPlugins "$old/.claude/settings.json")"; fails=$((fails + 1))
+fi
+
 nl="$work/no-newline"
 new_repo "$nl" no
 printf 'node_modules' > "$nl/.gitignore"
@@ -336,6 +377,36 @@ if [[ $status == 0 && "$(cat "$FAKE_LOG")" == "rename w1:p1 integrador" ]]; then
 else
     echo "FAIL  claim-integrator: configured name (exit $status, log '$(cat "$FAKE_LOG")')"; fails=$((fails + 1))
 fi
+
+# Skills keep shell code free of the tokens Claude Code substitutes with the arguments ($0,
+# $ARGUMENTS in a code block, ...): tests/check-skill-substitutions.py.
+if python3 "$root/tests/check-skill-substitutions.py" "$root/plugin/skills"; then
+    echo "ok    skills: no argument placeholder in shell code"
+else
+    echo "FAIL  skills: argument placeholder that Claude Code would substitute"; fails=$((fails + 1))
+fi
+mkdir -p "$work/skills-bad/x"
+# The line that broke in dispatch (before worktree-of.sh).
+cat > "$work/skills-bad/x/SKILL.md" <<'MD'
+```bash
+WT=$(git worktree list --porcelain | awk -v b="branch refs/heads/$BRANCH" '/^worktree /{p=substr($0,10)} $0==b{print p}')
+```
+MD
+if ! python3 "$root/tests/check-skill-substitutions.py" "$work/skills-bad" >/dev/null 2>&1; then
+    echo "ok    skills: the check rejects an awk \$0 in a skill"
+else
+    echo "FAIL  skills: the check accepted an awk \$0"; fails=$((fails + 1))
+fi
+# worktree-of.sh: the dispatch skill's branch -> worktree lookup (path with spaces).
+got=$(cd "$sp" && "$root/plugin/scripts/worktree-of.sh" feat/y)
+if [[ "$got" == "$(cd "$work/with space/repo-y" && pwd -P)" || "$got" == "$work/with space/repo-y" ]]; then
+    echo "ok    worktree-of: path of a branch's worktree"
+else
+    echo "FAIL  worktree-of: got '$got'"; fails=$((fails + 1))
+fi
+(cd "$sp" && "$root/plugin/scripts/worktree-of.sh" feat/none >/dev/null 2>&1); [[ $? == 1 ]] \
+    && echo "ok    worktree-of: exit 1 for a branch without a worktree" \
+    || { echo "FAIL  worktree-of: branch without a worktree"; fails=$((fails + 1)); }
 
 # Every `herdr agent prompt` in the skills sends the header: a literal message starts with it,
 # and a "$VAR" message is assigned with the header as its first line in the same file.

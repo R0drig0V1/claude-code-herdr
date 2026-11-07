@@ -10,6 +10,9 @@ scripts/new-worktree.sh (not `herdr worktree create`), opens it as its own herdr
 starts a Claude agent there named after the branch and prompts it with the brief. It is the
 only way development agents start: the integrator later finds each one by its pane cwd. Command syntax was
 taken from `herdr --skill` and `herdr worktree|workspace|agent` (herdr 0.9.5).
+Shell code here must not use positional tokens (a dollar sign and a digit, as in awk fields):
+Claude Code substitutes them with the skill's arguments; tests/check-skill-substitutions.py
+enforces it, and scripts/worktree-of.sh replaces the old inline awk.
 -->
 
 # Dispatch
@@ -66,7 +69,7 @@ Do not reimplement it and do not use `herdr worktree create`: the script owns th
 NW="${CLAUDE_PLUGIN_ROOT}/scripts/new-worktree.sh"
 [[ -x "$NW" ]] || { echo "FATAL: $NW missing or not executable; reinstall multi-agent-herdr" >&2; false; }
 "$NW" "$BRANCH"
-WT=$(git worktree list --porcelain | awk -v b="branch refs/heads/$BRANCH" '/^worktree /{p=substr($0,10)} $0==b{print p}')
+WT=$("${CLAUDE_PLUGIN_ROOT}/scripts/worktree-of.sh" "$BRANCH")
 test -d "$WT" && echo "worktree: $WT"
 ```
 
