@@ -13,7 +13,9 @@
 #   scripts/integrator.sh, .claude/prompts/integrator.md, docs/ indexes) into the repository.
 #   Existing files are kept and listed, unless --force.
 # - Enables the plugin for the project in .claude/settings.json: copied when absent, merged
-#   with jq when present (the snippet is printed when jq is missing).
+#   with jq when present (the snippet is printed when jq is missing). An enabled old
+#   multi-agent@claude-code-multi-agent plugin, which this one replaces, is set to false there:
+#   both plugins' guards would run otherwise.
 # - Appends the missing .gitignore lines.
 # The plugin itself (skills, agents, hooks, worktree and verify scripts) is not copied: Claude
 # Code installs it from the marketplace the settings point at, and updates it from there.
@@ -24,6 +26,7 @@ set -euo pipefail
 REPO_URL="https://github.com/R0drig0V1/claude-code-herdr.git"
 MARKETPLACE="claude-code-herdr"
 PLUGIN="multi-agent-herdr@${MARKETPLACE}"
+OLD_PLUGIN="multi-agent@claude-code-multi-agent"   # the plugin this one replaces
 
 dry_run=false
 force=false
@@ -31,7 +34,7 @@ for arg in "$@"; do
     case "$arg" in
         --dry-run) dry_run=true ;;
         --force) force=true ;;
-        -h|--help) sed -n '2,22p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true; exit 0 ;;
+        -h|--help) sed -n '2,23p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true; exit 0 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
@@ -77,21 +80,34 @@ while IFS= read -r rel; do
     do_copy "$rel"
 done < <(cd "$src/template" && find . -type f | sed 's|^\./||' | sort)
 
-# .claude/settings.json: enable the marketplace and the plugin for the project. "Enabled"
-# means enabledPlugins maps the plugin id to true (a `false` entry is merged to true).
+# .claude/settings.json: enable the marketplace and the plugin for the project, and turn the
+# old plugin off. "Enabled" means enabledPlugins maps the plugin id to true (a `false` entry
+# is merged to true). The old plugin is set to false, not removed, so the file records the
+# switch; a rerun finds it false and changes nothing.
 settings_note=""
 if [[ ! -e "$settings" ]]; then
     do_copy ".claude/settings.json"
-elif command -v jq >/dev/null 2>&1 && jq -e --arg id "$PLUGIN" '.enabledPlugins[$id] == true' "$settings" >/dev/null; then
-    settings_note="already enables $PLUGIN"
 elif command -v jq >/dev/null 2>&1; then
+    enabled() { jq -e --arg id "$1" '.enabledPlugins[$id] == true' "$settings" >/dev/null; }
     settings_note="merged the marketplace and plugin into it"
-    if ! $dry_run; then
-        merged=$(jq -s '.[0] * .[1]' "$settings" "$src/template/.claude/settings.json")
+    enabled "$PLUGIN" && settings_note="already enables $PLUGIN"
+    if enabled "$OLD_PLUGIN"; then
+        settings_note+="; disabled $OLD_PLUGIN (replaced by $PLUGIN)"
+    fi
+    if ! $dry_run && [[ "$settings_note" != "already enables $PLUGIN" ]]; then
+        merged=$(jq -s --arg old "$OLD_PLUGIN" \
+            '(.[0] * .[1]) | if .enabledPlugins[$old] == true then .enabledPlugins[$old] = false else . end' \
+            "$settings" "$src/template/.claude/settings.json")
         printf '%s\n' "$merged" > "$settings"
     fi
 else
     settings_note="NOT changed (jq missing): add the keys below by hand"
+fi
+# settings.local.json is the user's own file: warn, do not edit it.
+local_settings="$target/.claude/settings.local.json"
+if [[ -f "$local_settings" ]] && command -v jq >/dev/null 2>&1 \
+    && jq -e --arg id "$OLD_PLUGIN" '.enabledPlugins[$id] == true' "$local_settings" >/dev/null 2>&1; then
+    settings_note+="${settings_note:+; }WARNING: .claude/settings.local.json still enables $OLD_PLUGIN: set it to false"
 fi
 
 # .gitignore lines.
@@ -129,8 +145,9 @@ Next steps:
      plugin. Or install it explicitly:
        claude plugin marketplace add R0drig0V1/claude-code-herdr
        claude plugin install $PLUGIN --scope project
-     If .claude/settings.json also enables multi-agent@claude-code-multi-agent, disable it:
-     this plugin replaces it.
+     This plugin replaces multi-agent@claude-code-multi-agent: the installer sets it to false
+     in .claude/settings.json (by hand when jq is missing). Uninstall it if you no longer
+     use it elsewhere.
   4. Inside herdr, run /multi-agent-herdr:setup once, launch the integrator with
      scripts/integrator.sh, and start development agents from it with
      /multi-agent-herdr:dispatch <type>/<name> <task>.

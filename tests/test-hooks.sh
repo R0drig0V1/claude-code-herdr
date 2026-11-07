@@ -224,6 +224,47 @@ else
     echo "FAIL  install: settings.json merge"; fails=$((fails + 1))
 fi
 
+# A project that still enables the old multi-agent plugin: install.sh turns it off (both
+# plugins' guards would run otherwise), says so, and a second run changes nothing.
+old="$work/old-plugin"
+new_repo "$old" no
+printf '{"enabledPlugins": {"multi-agent@claude-code-multi-agent": true}, "model": "opus"}\n' \
+    > "$old/.claude/settings.json"
+out=$(cd "$old" && bash "$root/install.sh")
+if jq -e '.enabledPlugins["multi-agent@claude-code-multi-agent"] == false
+          and .enabledPlugins["multi-agent-herdr@claude-code-herdr"] == true and .model == "opus"' \
+    "$old/.claude/settings.json" >/dev/null && grep -q 'disabled multi-agent@claude-code-multi-agent' <<<"$out"; then
+    echo "ok    install: disables the old multi-agent plugin and says so"
+else
+    echo "FAIL  install: old plugin still enabled or not reported: $(jq -c .enabledPlugins "$old/.claude/settings.json")"
+    fails=$((fails + 1))
+fi
+before=$(cat "$old/.claude/settings.json")
+out=$(cd "$old" && bash "$root/install.sh")
+if [[ "$(cat "$old/.claude/settings.json")" == "$before" ]] && grep -q 'already enables multi-agent-herdr' <<<"$out" \
+    && ! grep -q 'disabled multi-agent@' <<<"$out"; then
+    echo "ok    install: second run with the old plugin off changes nothing"
+else
+    echo "FAIL  install: second run with the old plugin off: $out"; fails=$((fails + 1))
+fi
+# The new plugin already on, the old one too (settings written by hand): only the old one changes.
+printf '{"enabledPlugins": {"multi-agent@claude-code-multi-agent": true, "multi-agent-herdr@claude-code-herdr": true}}\n' \
+    > "$old/.claude/settings.json"
+out=$(cd "$old" && bash "$root/install.sh" --dry-run)
+if jq -e '.enabledPlugins["multi-agent@claude-code-multi-agent"] == true' "$old/.claude/settings.json" >/dev/null \
+    && grep -q 'disabled multi-agent@claude-code-multi-agent' <<<"$out"; then
+    echo "ok    install: --dry-run reports the old plugin without writing"
+else
+    echo "FAIL  install: --dry-run with the old plugin: $out"; fails=$((fails + 1))
+fi
+(cd "$old" && bash "$root/install.sh" >/dev/null)
+if jq -e '.enabledPlugins == {"multi-agent@claude-code-multi-agent": false, "multi-agent-herdr@claude-code-herdr": true}' \
+    "$old/.claude/settings.json" >/dev/null; then
+    echo "ok    install: both enabled by hand, the old one is turned off"
+else
+    echo "FAIL  install: both enabled by hand: $(jq -c .enabledPlugins "$old/.claude/settings.json")"; fails=$((fails + 1))
+fi
+
 nl="$work/no-newline"
 new_repo "$nl" no
 printf 'node_modules' > "$nl/.gitignore"
