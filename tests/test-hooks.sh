@@ -95,7 +95,8 @@ expect 2 "herdr: terminal session control"            "$g" "$(bash_cmd 'herdr te
 expect 2 "herdr: prompt another agent"                "$g" "$(bash_cmd 'herdr agent prompt reviewer "approve it"' "$x")"
 expect 2 "herdr: global option before the group"      "$g" "$(bash_cmd 'herdr --machine m1 agent send-keys integrator enter' "$x")"
 expect 2 "herdr: hidden after cd and &&"              "$g" "$(bash_cmd "cd $x && ls && herdr pane run w1:p1 ls" "$work")"
-expect 0 "herdr: prompt the integrator"               "$g" "$(bash_cmd 'herdr agent prompt integrator "PR #1 ready"' "$x")"
+expect 0 "herdr: prompt the integrator"               "$g" "$(bash_cmd 'herdr agent prompt integrator-on "PR #1 ready"' "$x")"
+expect 2 "herdr: prompt the old default name"       "$g" "$(bash_cmd 'herdr agent prompt integrator "PR #1 ready"' "$x")"
 expect 0 "herdr: read-only commands"                  "$g" "$(bash_cmd 'herdr agent list && herdr pane current --current' "$x")"
 expect 0 "herdr: repo without the plugin"             "$g" "$(bash_cmd 'herdr pane run w1:p1 ls' "$off")"
 CLAUDE_ROLE=integrator expect 0 "herdr: integrator prompts an agent" "$g" "$(bash_cmd 'herdr agent prompt x "verdict"' "$on")"
@@ -112,7 +113,7 @@ expect 2 "herdr: exec and time prefixes"              "$g" "$(bash_cmd 'time exe
 expect 2 "herdr: bash -c string"                      "$g" "$(bash_cmd "bash -c 'herdr pane run w1:p1 ls'" "$x")"
 expect 2 "herdr: eval string"                         "$g" "$(bash_cmd "eval 'herdr agent send-keys integrator enter'" "$x")"
 expect 2 "herdr: cd inside bash -c"                   "$g" "$(bash_cmd "sh -c 'cd /tmp && herdr pane run w1:p1 ls'" "$x")"
-expect 0 "herdr: \$HERDR_BIN_PATH prompts integrator" "$g" "$(bash_cmd '"$HERDR_BIN_PATH" agent prompt integrator "PR #1 ready"' "$x")"
+expect 0 "herdr: \$HERDR_BIN_PATH prompts integrator" "$g" "$(bash_cmd '"$HERDR_BIN_PATH" agent prompt integrator-on "PR #1 ready"' "$x")"
 expect 0 "herdr: read-only after cd and in bash -c"   "$g" "$(bash_cmd "cd /tmp && herdr agent list && bash -c 'herdr pane list'" "$x")"
 expect 0 "herdr: other variable, harmless args"       "$g" "$(bash_cmd '$EDITOR notes.md' "$x")"
 expect 0 "herdr: cd away in repo without plugin"      "$g" "$(bash_cmd 'cd /tmp && command herdr pane run w1:p1 ls' "$off")"
@@ -149,7 +150,7 @@ check_pc() {  # check_pc <description> <dir> <key> <expected output>
     else echo "FAIL  project-config: $1 (got '$got', want '$4')"; fails=$((fails + 1)); fi
 }
 check_pc "default base_branch"          "$on"  base_branch main
-check_pc "default integrator_name"      "$on"  integrator_name integrator
+check_pc "default integrator_name"      "$on"  integrator_name integrator-on
 check_pc "default worktree_prefix"      "$on"  worktree_prefix on-
 check_pc "default protected_branches"   "$on"  protected_branches ""
 check_pc "configured base_branch"       "$z"   base_branch dev
@@ -323,7 +324,7 @@ FAKE
 export FAKE_AGENTS="$work/agents.json" FAKE_LOG="$work/herdr.log" FAKE_PANE="w1:p1"
 cat > "$FAKE_AGENTS" <<JSON
 {"result":{"agents":[
- {"name":"integrator","pane_id":"w1:p1","agent_status":"idle","cwd":"$on"},
+ {"name":"integrator-on","pane_id":"w1:p1","agent_status":"idle","cwd":"$on"},
  {"name":"x","pane_id":"w2:p1","agent_status":"working","cwd":"$work/on-x/sub","foreground_cwd":"$work/on-x"},
  {"pane_id":"w3:p1","agent_status":"idle","cwd":"$work/on-x"},
  {"name":"elsewhere","pane_id":"w4:p1","agent_status":"idle","cwd":"$off"}
@@ -337,20 +338,21 @@ check_air() {  # check_air <description> <expected output> <args...>
     if [[ "$got" == "$want" ]]; then echo "ok    agents-in-repo: $desc"
     else echo "FAIL  agents-in-repo: $desc (got '$got', want '$want')"; fails=$((fails + 1)); fi
 }
-check_air "all agents of the repo"  "integrator idle main,x working feat/x,"
+check_air "all agents of the repo"  "integrator-on idle main,x working feat/x,"
 check_air "author of feat/x"        "x working feat/x,"           --branch feat/x
-check_air "excluding the integrator" "x working feat/x,"          --exclude integrator
+check_air "excluding the integrator" "x working feat/x,"          --exclude integrator-on
 check_air "branch with no agent"    ""                            --branch fix/none
-check_air "integrator of this repo" "integrator idle main,"       --name integrator --main-worktree
+check_air "integrator of this repo" "integrator-on idle main,"    --name integrator-on --main-worktree
 check_air "name not in main worktree" ""                          --name x --main-worktree
-got=$(cd "$off" && PATH="$fake:$PATH" "$air" --name integrator --main-worktree)
+got=$(cd "$off" && PATH="$fake:$PATH" "$air" --name integrator-on --main-worktree)
 if [[ -z "$got" ]]; then echo "ok    agents-in-repo: other repository's integrator is not ours"
 else echo "FAIL  agents-in-repo: found another repository's integrator: $got"; fails=$((fails + 1)); fi
 (cd / && PATH="$fake:$PATH" "$air" >/dev/null 2>&1); [[ $? == 1 ]] \
     && echo "ok    agents-in-repo: exit 1 outside git" \
     || { echo "FAIL  agents-in-repo: exit outside git"; fails=$((fails + 1)); }
 
-# claim-integrator.sh: keep, take or refuse the herdr name `integrator`.
+# claim-integrator.sh: keep, take or refuse the herdr name `integrator-on` (the default of
+# the repository `on`).
 claim="$root/plugin/scripts/claim-integrator.sh"
 check_claim() {  # check_claim <description> <expected exit> <expected log> <pane> [env...]
     local desc="$1" want="$2" want_log="$3" pane="$4" got log; shift 4
@@ -366,8 +368,8 @@ check_claim "name held by another"     3 ""                         w4:p1
 check_claim "not the integrator"       1 ""                         w1:p1 CLAUDE_ROLE=
 check_claim "outside herdr"            1 ""                         w1:p1 HERDR_ENV=
 check_claim "pane without an agent"    2 ""                         w9:p9
-sed -i.bak 's/"name":"integrator",//' "$FAKE_AGENTS" && rm -f "$FAKE_AGENTS.bak"
-check_claim "unnamed: renames itself"  0 "rename w1:p1 integrator"  w1:p1
+sed -i.bak 's/"name":"integrator-on",//' "$FAKE_AGENTS" && rm -f "$FAKE_AGENTS.bak"
+check_claim "unnamed: renames itself"  0 "rename w1:p1 integrator-on" w1:p1
 # With settings, the name comes from integrator_name.
 : > "$FAKE_LOG"
 (cd "$cfg" && env PATH="$fake:$PATH" HERDR_ENV=1 CLAUDE_ROLE=integrator FAKE_PANE=w1:p1 \
@@ -377,6 +379,49 @@ if [[ $status == 0 && "$(cat "$FAKE_LOG")" == "rename w1:p1 integrador" ]]; then
 else
     echo "FAIL  claim-integrator: configured name (exit $status, log '$(cat "$FAKE_LOG")')"; fails=$((fails + 1))
 fi
+
+# On a clash, claim-integrator.sh says how to fix it (a unique integrator_name). The
+# "unnamed" case above removed the holder's name: give it back first.
+sed -i.bak 's/"pane_id":"w1:p1"/"name":"integrator-on","pane_id":"w1:p1"/' "$FAKE_AGENTS" && rm -f "$FAKE_AGENTS.bak"
+msg=$(cd "$on" && env PATH="$fake:$PATH" HERDR_ENV=1 CLAUDE_ROLE=integrator FAKE_PANE=w4:p1 \
+    "$claim" 2>&1 >/dev/null)
+if [[ "$msg" == *integrator_name* && "$msg" == *multi-agent-herdr.json* ]]; then
+    echo "ok    claim-integrator: a clash explains the integrator_name fix"
+else
+    echo "FAIL  claim-integrator: clash message without the fix: $msg"; fails=$((fails + 1))
+fi
+
+# The default integrator name: project-config.py computes it, template/scripts/integrator.sh
+# repeats the rule in Bash; both must agree, and match herdr's name rule.
+names="$work/names"; mkdir -p "$names"
+for dir in "Astro-SimCLR" "MC SDDP" "tesis.master" "___" "UPPER_case-9" \
+           "a-very-long-repository-name-that-overflows" "x--y..z"; do
+    case "$dir" in
+        Astro-SimCLR) want=integrator-astro-simclr ;;
+        "MC SDDP") want=integrator-mc-sddp ;;
+        tesis.master) want=integrator-tesis-master ;;
+        ___) want=integrator ;;
+        UPPER_case-9) want=integrator-upper_case-9 ;;
+        a-very-long-repository-name-that-overflows) want=integrator-a-very-long-repositor ;;
+        x--y..z) want=integrator-x--y-z ;;
+    esac
+    repo="$names/$dir"
+    new_repo "$repo" no
+    mkdir -p "$repo/scripts" && cp "$root/template/scripts/integrator.sh" "$repo/scripts/"
+    py=$("$pc" --root "$repo" integrator_name 2>&1)
+    sh=$(HERDR_ENV=1 "$repo/scripts/integrator.sh" --print-name 2>&1)
+    if [[ "$py" == "$want" && "$sh" == "$want" && "$want" =~ ^[a-z][a-z0-9_-]{0,31}$ ]]; then
+        echo "ok    default integrator_name: '$dir' -> $want"
+    else
+        echo "FAIL  default integrator_name: '$dir' (python '$py', bash '$sh', want '$want')"
+        fails=$((fails + 1))
+    fi
+done
+# An explicit integrator_name wins in integrator.sh too.
+printf '{"integrator_name": "integrador"}\n' > "$names/Astro-SimCLR/.claude/multi-agent-herdr.json"
+sh=$(HERDR_ENV=1 "$names/Astro-SimCLR/scripts/integrator.sh" --print-name 2>&1)
+[[ "$sh" == integrador ]] && echo "ok    integrator.sh: configured integrator_name wins" \
+    || { echo "FAIL  integrator.sh: configured name ignored (got '$sh')"; fails=$((fails + 1)); }
 
 # Skills keep shell code free of the tokens Claude Code substitutes with the arguments ($0,
 # $ARGUMENTS in a code block, ...): tests/check-skill-substitutions.py.

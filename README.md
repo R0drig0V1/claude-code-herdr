@@ -16,7 +16,8 @@ ported and made herdr native); do not enable both in one project.
   green ones and bounces the rest with evidence, as an adversarial auditor.
 - **Every development agent has its own git worktree and its own herdr workspace** (a separate
   sidebar entry, never a pane split), started by the integrator with `dispatch`.
-- **Messages travel by herdr agent name.** `pr` announces to the agent `integrator`;
+- **Messages travel by herdr agent name.** `pr` announces to the project's integrator
+  (`integrator-<repo>` by default);
   `integrate` sends the verdict to the agent whose pane is in the branch's worktree.
 - **Hooks enforce it.** Edits, commits, dependency installs and pushes to `main` from a
   non-integrator session are blocked before they run.
@@ -66,10 +67,11 @@ touched by this plugin.
 
 ### Configuration
 
-By default pull requests target `main`, the integrator's herdr agent is `integrator` and
-worktrees are `../<repo>-<name>`. A project that works otherwise says so in the optional,
-versioned `.claude/multi-agent-herdr.json` at the root of its main worktree (the installer
-copies one with the defaults):
+By default pull requests target `main`, the integrator's herdr agent is
+`integrator-<repo>` and worktrees are `../<repo>-<name>`. A project that works otherwise says
+so in the optional, versioned `.claude/multi-agent-herdr.json` at the root of its main
+worktree (the installer copies one with the defaults; it leaves `integrator_name` out, so the
+per-repository default applies):
 
 ```json
 {
@@ -83,7 +85,7 @@ copies one with the defaults):
 | Key | Default | Used for |
 |-----|---------|----------|
 | `base_branch` | `main` | PR base (`pr`), worktree start point (`new-worktree.sh`), the queue, merge and push target (`integrate`), the argument of `scripts/worktree-setup.sh` in `verify-merge.sh` |
-| `integrator_name` | `integrator` | the herdr name `claim-integrator.sh` takes, `pr` announces to, the Bash guard lets agents prompt, and `scripts/integrator.sh` names the session |
+| `integrator_name` | `integrator-<repo>`: the main worktree's directory name in lower case, runs outside `[a-z0-9_-]` replaced by `-`, cut to herdr's 32 characters (`Astro-SimCLR` -> `integrator-astro-simclr`) | the herdr name `claim-integrator.sh` takes, `pr` announces to, the Bash guard lets agents prompt, and `scripts/integrator.sh` names the session |
 | `protected_branches` | `[]` | extra `fnmatch` patterns only the integrator may push; `main` and `base_branch` are always protected |
 | `worktree_prefix` | `<repo>-` | development worktrees are `../<worktree_prefix><name>` |
 
@@ -118,12 +120,17 @@ the promotion procedure the project documents in `CLAUDE.md` or
 | Development agent | Started by `dispatch` inside its worktree: work, `/multi-agent-herdr:commit`, `/multi-agent-herdr:pr` |
 | Before a phase | `/multi-agent-herdr:improve-plan` (red-team review of `docs/phases/`) |
 
-The integrator's herdr agent must be named `integrator` (or the project's
-`integrator_name`): `dispatch` and `integrate` take the name first
-(`scripts/claim-integrator.sh`). herdr names are unique per **server**, not per
-repository, so run **one integrator per herdr server**; `pr` only announces to an `integrator`
-whose pane is in its own repository's main worktree, so another repository's integrator never
-receives it.
+The integrator's herdr agent is named after `integrator_name`: `dispatch` and `integrate`
+take the name first (`scripts/claim-integrator.sh`). herdr names are unique per **server**,
+not per repository, which is why the default carries the repository: several projects can
+each run their integrator on one herdr server. Two repositories whose names normalise to the
+same default (the first 21 characters after `integrator-` agree) clash; set `integrator_name`
+in one of them, as `claim-integrator.sh` says when it refuses. `pr` only announces to the
+integrator whose pane is in its own repository's main worktree, so another repository's
+integrator never receives it.
+
+Repositories installed before this default have `"integrator_name": "integrator"` written in
+their settings and keep it; `/multi-agent-herdr:setup` offers to remove the key.
 
 ## What's inside
 
@@ -131,7 +138,7 @@ receives it.
 |-----------|------|--------------|
 | Skill | `dispatch` | Integrator only: `new-worktree.sh`, then `herdr worktree open` (fallback `workspace create`) as its own workspace, `herdr agent start <name> --kind claude`, and the brief |
 | Skill | `commit` | Conventional Commits in English, runs `scripts/check.sh` first, never stages secrets |
-| Skill | `pr` | Rebases, checks, opens the PR with a structured body, announces it to the herdr agent `integrator` |
+| Skill | `pr` | Rebases, checks, opens the PR with a structured body, announces it to the project's integrator herdr agent (`integrator_name`) |
 | Skill | `integrate` | Integrator loop: queue -> merge `--no-commit` -> `verify-merge.sh` -> merge or bounce -> plan -> verdict to the author's herdr agent, "main moved" to the others |
 | Skill | `document` | Brings docstrings, `docs/`, ADRs and `CLAUDE.md` up to date |
 | Skill | `improve-plan` | Up to 3 adversarial rounds against `docs/phases/` with `plan-adversary` |
@@ -196,8 +203,9 @@ or attaches the TUI.
   the `cd` target is in an enabled repository. Another language, a script file, an alias or
   `xargs` still gets through.
 - The integrator is recognised only by `CLAUDE_ROLE=integrator` (hooks) and the herdr agent
-  name `integrator` in the repository's main worktree (messages). One integrator per herdr
-  server, because herdr agent names are unique per server.
+  name `integrator_name` in the repository's main worktree (messages). herdr agent names are
+  unique per server, so each project on one server needs its own name: the
+  `integrator-<repo>` default gives that unless two repository names normalise alike.
 - `install.sh --force` overwrites project files you already filled in, without a backup: run
   `--dry-run` first.
 - `tests/test-hooks.sh` builds its repositories under `.test-work/` (or `~/.cache` when the

@@ -63,8 +63,10 @@ integrator.
 - **Main worktree (this checkout) = integrator only.** One agent, launched with
   `scripts/integrator.sh` inside herdr (sets `CLAUDE_ROLE=integrator`, appends the
   adversarial-auditor prompt `.claude/prompts/integrator.md`); its herdr agent name is
-  `integrator_name` (here `integrator`). It runs `/multi-agent-herdr:integrate`: verify each
-  open PR merged onto the base branch, push green ones, bounce the rest. It never develops.
+  `integrator_name` (by default `integrator-<repository directory name>`; herdr names are
+  unique per server, so the name carries the repository; `scripts/integrator.sh --print-name`
+  shows it). It runs `/multi-agent-herdr:integrate`: verify each open PR merged onto the
+  base branch, push green ones, bounce the rest. It never develops.
   The plugin's hooks block any other session from changing it: Edit/Write in the main
   worktree, and in the shell git commits/checkouts, file writes, dependency installs, pushes
   to `main`, the base branch or `protected_branches`, and `gh pr merge`.

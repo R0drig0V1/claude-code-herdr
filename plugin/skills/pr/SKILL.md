@@ -19,7 +19,7 @@ syntax from `herdr --skill` and `herdr agent|pane` (herdr 0.9.5).
 
 It prints the project's settings (`.claude/multi-agent-herdr.json`, defaults when absent).
 Below, **`<base>`** is `base_branch` (default `main`) and **`<integrator>`** is
-`integrator_name` (default `integrator`): write their values literally into every command,
+`integrator_name` (default `integrator-<repository>`): write their values literally into every command,
 because shell variables do not survive from one command to the next. A non-zero exit means
 the file is invalid: stop and show the user the error.
 

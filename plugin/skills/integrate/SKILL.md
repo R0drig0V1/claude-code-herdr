@@ -24,7 +24,7 @@ the base branch, one PR at a time, and keep it green. The workflow is described 
 ```
 
 Below, **`<base>`** is `base_branch` (default `main`) and **`<integrator>`** is
-`integrator_name` (default `integrator`): write their values literally into every command,
+`integrator_name` (default `integrator-<repository>`): write their values literally into every command,
 because shell variables do not survive from one command to the next. A non-zero exit means
 `.claude/multi-agent-herdr.json` is invalid: stop and show the user the error.
 
