@@ -34,7 +34,7 @@ MAIN=$(git rev-parse --show-toplevel)
 ```
 
 Below, **`<base>`** is `base_branch` (default `main`) and **`<integrator>`** is
-`integrator_name` (default `integrator`) from the settings: write their values literally,
+`integrator_name` (default `integrator-<repository>`) from the settings: write their values literally,
 because shell variables do not survive from one command to the next.
 
 The new agent's `/multi-agent-herdr:pr` announces to the herdr agent `<integrator>` in this

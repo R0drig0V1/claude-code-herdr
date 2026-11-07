@@ -2,7 +2,8 @@
 # Make sure the calling integrator session holds the project's integrator herdr agent name.
 #
 # Part of the multi-agent-herdr plugin. Development agents announce PRs to the herdr agent
-# named after `integrator_name` in .claude/multi-agent-herdr.json (default `integrator`;
+# named after `integrator_name` in .claude/multi-agent-herdr.json (default
+# `integrator-<repository>`;
 # project-config.py), but scripts/integrator.sh can only name the Claude Code session, not the
 # herdr agent. The `dispatch` and `integrate` skills run this first, so an agent dispatched
 # right after launch can still reach the integrator.
@@ -35,7 +36,10 @@ fi
 holder=$(jq -r --arg n "$name" '.result.agents[] | select(.name == $n) | "\(.pane_id) \(.cwd)"' <<<"$agents")
 if [[ -n "$holder" ]]; then
     echo "the herdr name '$name' is held by pane ${holder%% *} (cwd ${holder#* });" \
-        "herdr names are unique per server, so run one integrator per herdr server" >&2
+        "herdr names are unique per server: give this project its own name with" \
+        "\"integrator_name\" in .claude/multi-agent-herdr.json (for example" \
+        "\"integrator-<repository>\", the default when the key is absent)," \
+        "or run its integrator on another herdr server" >&2
     exit 3
 fi
 

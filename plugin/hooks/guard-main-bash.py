@@ -16,7 +16,7 @@ every other session, it blocks:
 * from any worktree, herdr commands that type into another pane or take over another agent:
   `herdr agent send-keys|attach|rename`, `herdr pane run|send-keys|send-text`,
   `herdr terminal attach|session`, and `herdr agent prompt` to any target but the project's
-  integrator (`integrator_name`, default `integrator`).
+  integrator (`integrator_name`, default `integrator-<repository>`).
   Without this, a development agent could run `git push origin main` in the integrator's pane
   or answer its approval dialog, outside any guarded Bash call.
 * in the main worktree: git commands that change the checkout or its history (commit, merge,
@@ -196,7 +196,8 @@ def herdr_reason(args: list[str], integrators: set[str] | None = None) -> str | 
     """Reason to block a `herdr ...` invocation from a non-integrator session, or None.
 
     `integrators` are the herdr names development agents may `agent prompt` (the integrator of
-    each enabled repository involved); default `{"integrator"}`.
+    each enabled repository involved, from their settings); without any, plain
+    `{"integrator"}`, the name the plugin used before the per-repository default.
     """
     integrators = integrators or {"integrator"}
     words = list(args)

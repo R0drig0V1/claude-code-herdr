@@ -2,10 +2,10 @@
 """Read the project's multi-agent-herdr settings: `.claude/multi-agent-herdr.json`.
 
 Part of the multi-agent-herdr plugin. The workflow assumes, by default, that pull requests
-merge into `main` and that the integrator's herdr agent is named `integrator`. A project that
-integrates into another branch (for example `dev`, promoted to `main` separately) or names
-its integrator differently says so in this optional, versioned file at the root of the main
-worktree:
+merge into `main` and that the integrator's herdr agent is named `integrator-<repository>`
+(see `default_integrator_name`). A project that integrates into another branch (for example
+`dev`, promoted to `main` separately) or names its integrator differently says so in this
+optional, versioned file at the root of the main worktree:
 
     {
       "base_branch": "dev",
@@ -18,8 +18,11 @@ Keys (all optional; a missing file means every default):
 
 * `base_branch` (default `main`): the branch pull requests target, worktrees start from and
   the integrator merges into and pushes.
-* `integrator_name` (default `integrator`): the integrator's herdr agent name. herdr names
-  must match `[a-z][a-z0-9_-]{0,31}`.
+* `integrator_name` (default `integrator-<repository directory name>`, normalised by
+  `default_integrator_name`): the integrator's herdr agent name. herdr names must match
+  `[a-z][a-z0-9_-]{0,31}` and are unique per herdr server, so the default carries the
+  repository: two projects on one server get two integrators instead of colliding on one
+  name.
 * `protected_branches` (default `[]`): extra branch patterns (`fnmatch`, e.g. `release/*`)
   that only the integrator may push. `main` and `base_branch` are always protected.
 * `worktree_prefix` (default `<repository directory name>-`): development worktrees are
@@ -53,17 +56,40 @@ from typing import Any
 FILE = os.path.join(".claude", "multi-agent-herdr.json")
 HERDR_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 PREFIX = re.compile(r"[A-Za-z0-9._-]*")
+INTEGRATOR = "integrator"
+HERDR_NAME_MAX = 32
 
 
 class ConfigError(ValueError):
     """The settings file exists but cannot be used."""
 
 
+def default_integrator_name(root: str) -> str:
+    """Default herdr name of the integrator of the repository whose main worktree is `root`.
+
+    `integrator-<slug>`, where the slug is the main worktree's directory name in lower case
+    with every run of characters outside `[a-z0-9_-]` replaced by `-` and leading or trailing
+    `-`/`_` removed; the result is cut to herdr's 32 characters (trailing `-`/`_` removed
+    again). A directory name with no usable character gives plain `integrator`. Examples:
+    `Astro-SimCLR` -> `integrator-astro-simclr`, `MC SDDP` -> `integrator-mc-sddp`.
+
+    Two repositories whose slugs share the first 21 characters get the same default; set
+    `integrator_name` explicitly in one of them (claim-integrator.sh says so on a clash).
+    template/scripts/integrator.sh repeats this rule in Bash (it cannot reach the plugin);
+    tests/test-hooks.sh checks that both agree.
+    """
+    base = os.path.basename(os.path.normpath(root)).lower()
+    slug = re.sub(r"[^a-z0-9_-]+", "-", base).strip("-_")
+    if not slug:
+        return INTEGRATOR
+    return f"{INTEGRATOR}-{slug}"[:HERDR_NAME_MAX].rstrip("-_")
+
+
 def defaults(root: str) -> dict[str, Any]:
     """Every setting at its default for the repository whose main worktree is `root`."""
     return {
         "base_branch": "main",
-        "integrator_name": "integrator",
+        "integrator_name": default_integrator_name(root),
         "protected_branches": [],
         "worktree_prefix": os.path.basename(os.path.normpath(root)) + "-",
     }

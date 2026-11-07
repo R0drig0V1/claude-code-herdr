@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- `integrator_name` defaults to `integrator-<repository>` (the main worktree's directory name,
+  lower case, runs outside `[a-z0-9_-]` replaced by `-`, cut to 32 characters) instead of
+  `integrator`. herdr agent names are unique per server, so with the old default a second
+  project on the same server could not dispatch (`claim-integrator.sh` exit 3).
+  `project-config.py` computes it (`default_integrator_name`), `template/scripts/integrator.sh`
+  repeats the rule and gains `--print-name`, and the template settings file no longer writes
+  the key. Existing projects with `"integrator_name": "integrator"` keep it;
+  `/multi-agent-herdr:setup` offers to remove it, and `claim-integrator.sh` explains the fix
+  when the name is taken.
+
 ### Added
 - `multi-agent-herdr` Claude Code plugin, published through the `claude-code-herdr`
   marketplace in this repository. Replaces `multi-agent` 0.1.0 (claude-code-multi-agent
