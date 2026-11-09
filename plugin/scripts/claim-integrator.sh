@@ -5,8 +5,10 @@
 # named after `integrator_name` in .claude/multi-agent-herdr.json (default
 # `integrator-<repository>`;
 # project-config.py), but scripts/integrator.sh can only name the Claude Code session, not the
-# herdr agent. The `dispatch` and `integrate` skills run this first, so an agent dispatched
-# right after launch can still reach the integrator.
+# herdr agent (it does not exist before `exec claude`). The SessionStart hook
+# session-start-integrator.sh runs this as each integrator session starts; the `dispatch` and
+# `integrate` skills run it again first, as a fallback, so an agent dispatched right after
+# launch can still reach the integrator.
 #
 # Usage: claim-integrator.sh       (inside herdr, CLAUDE_ROLE=integrator)
 #

@@ -7,8 +7,9 @@
 # Builds a repository that enables the plugin (guards active) and one that does not (guards
 # must stay out of the way), feeds the hooks the same JSON payloads Claude Code sends, and
 # checks exit codes: 2 blocks, 0 allows. Then runs install.sh into empty repositories, runs
-# new-worktree.sh under a path with spaces, runs agents-in-repo.py and claim-integrator.sh
-# against a fake `herdr`, and checks that every `herdr agent prompt` in the skills sends the
+# new-worktree.sh under a path with spaces, runs agents-in-repo.py, claim-integrator.sh and the
+# SessionStart hook that runs it (session-start-integrator.sh) against a fake `herdr` and a
+# scripted claim-integrator.sh, and checks that every `herdr agent prompt` in the skills sends the
 # "[herdr message from agent ...]" header.
 # Needs git, jq and python3.
 set -uo pipefail
@@ -390,6 +391,96 @@ if [[ "$msg" == *integrator_name* && "$msg" == *multi-agent-herdr.json* ]]; then
 else
     echo "FAIL  claim-integrator: clash message without the fix: $msg"; fails=$((fails + 1))
 fi
+
+# session-start-integrator.sh: the SessionStart hook that claims the name. A fake plugin root
+# holds a scripted claim-integrator.sh: one exit code per call from $FAKE_CLAIM_CODES (the last
+# repeats), $FAKE_CLAIM_MSG on stderr, an optional $FAKE_CLAIM_SLEEP, and one line per call
+# (its cwd) in $FAKE_CLAIM_LOG. The hook must never hold session start for more than ~1 s.
+fake_root="$work/fake-plugin"; mkdir -p "$fake_root/scripts"
+ln -s "$root/plugin/scripts/project-config.py" "$fake_root/scripts/project-config.py"
+cat > "$fake_root/scripts/claim-integrator.sh" <<'FAKE'
+#!/bin/sh
+pwd >> "$FAKE_CLAIM_LOG"
+[ -n "${FAKE_CLAIM_SLEEP:-}" ] && sleep "$FAKE_CLAIM_SLEEP"
+n=$(wc -l < "$FAKE_CLAIM_LOG")
+code=$(echo "$FAKE_CLAIM_CODES" | awk -v n="$n" '{ print (n <= NF) ? $n : $NF }')
+echo "$FAKE_CLAIM_MSG" >&2
+exit "$code"
+FAKE
+chmod +x "$fake_root/scripts/claim-integrator.sh"
+ssi="$hooks/session-start-integrator.sh"
+now() { python3 -c 'import time; print(time.time())'; }
+ss_out=""; ss_calls=0
+run_ssi() {  # run_ssi <case> <cwd> [env...]: sets ss_out and ss_calls; fails if slow or non-zero
+    local case="$1" dir="$2" t0 t1 status; shift 2
+    export FAKE_CLAIM_LOG="$work/claim-$case.log"; : > "$FAKE_CLAIM_LOG"
+    t0=$(now)
+    ss_out=$(jq -nc --arg d "$dir" '{cwd: $d, hook_event_name: "SessionStart", source: "startup"}' \
+        | env PATH="$fake:$PATH" CLAUDE_PLUGIN_ROOT="$fake_root" HERDR_ENV=1 CLAUDE_ROLE=integrator \
+              FAKE_CLAIM_CODES=0 FAKE_CLAIM_MSG="" "$@" "$ssi" 2>/dev/null); status=$?
+    t1=$(now)
+    sleep 0.1   # let a fast worker log its call
+    ss_calls=$(wc -l < "$FAKE_CLAIM_LOG" | tr -d ' ')
+    if [[ $status != 0 ]] || python3 -c "import sys; sys.exit(not ($t1 - $t0 > 1.5))"; then
+        echo "FAIL  session-start-integrator: $case (exit $status, $(python3 -c "print(round($t1 - $t0, 2))") s)"
+        fails=$((fails + 1)); return 1
+    fi
+}
+ctx() { jq -r '.hookSpecificOutput.additionalContext // empty' <<<"$ss_out" 2>/dev/null; }
+check_ssi() {  # check_ssi <description> <condition...>
+    local desc="$1"; shift
+    if "$@"; then echo "ok    session-start-integrator: $desc"
+    else echo "FAIL  session-start-integrator: $desc (calls $ss_calls, output '$ss_out')"; fails=$((fails + 1)); fi
+}
+silent_no_claim() { [[ -z "$ss_out" && "$ss_calls" == 0 ]]; }
+
+run_ssi role-unset "$on" CLAUDE_ROLE= && check_ssi "no claim when CLAUDE_ROLE is unset" silent_no_claim
+run_ssi no-herdr "$on" HERDR_ENV= && check_ssi "no claim outside herdr" silent_no_claim
+run_ssi linked "$work/on-x" && check_ssi "no claim in a linked worktree" silent_no_claim
+run_ssi no-plugin "$off" && check_ssi "no claim in a repo without the plugin" silent_no_claim
+: > "$work/claim-subagent.log"
+ss_out=$(jq -nc --arg d "$on" '{cwd: $d, agent_id: "a1", hook_event_name: "SessionStart"}' \
+    | env PATH="$fake:$PATH" CLAUDE_PLUGIN_ROOT="$fake_root" HERDR_ENV=1 CLAUDE_ROLE=integrator \
+          FAKE_CLAIM_CODES=0 FAKE_CLAIM_LOG="$work/claim-subagent.log" "$ssi" 2>/dev/null)
+ss_calls=$(wc -l < "$work/claim-subagent.log" | tr -d ' ')
+check_ssi "no claim for a subagent" silent_no_claim
+
+run_ssi exit0 "$on" FAKE_CLAIM_CODES=0
+claimed_in=$(cat "$FAKE_CLAIM_LOG")
+check_ssi "exit 0: one line naming the agent, claimed from the main worktree" \
+    bash -c '[[ "$1" == "You are the herdr agent integrator-on"* && $(wc -l <<<"$1") == *1 \
+              && "$2" == 1 && "$3" -ef "$4" ]]' _ "$(ctx)" "$ss_calls" "$claimed_in" "$on"
+run_ssi exit3 "$on" FAKE_CLAIM_CODES=3 \
+    FAKE_CLAIM_MSG="the herdr name 'integrator-on' is held by pane w4:p1 (cwd $off)"
+check_ssi "exit 3: names the holder and says to ask the user" \
+    bash -c '[[ "$1" == *"already holds"* && "$1" == *"pane w4:p1"* && "$1" == *"ask"*"user"* ]]' _ "$(ctx)"
+run_ssi exit1 "$on" FAKE_CLAIM_CODES=1 FAKE_CLAIM_MSG="invalid .claude/multi-agent-herdr.json"
+check_ssi "other failure: short warning, session continues" \
+    bash -c '[[ "$1" == *warning* && "$1" == *"exit 1"* && "$1" == *invalid* ]]' _ "$(ctx)"
+run_ssi slow "$on" FAKE_CLAIM_SLEEP=5
+check_ssi "slow herdr: returns within ~1 s, claim left running" \
+    bash -c '[[ "$1" == *"still running"* ]]' _ "$(ctx)"
+run_ssi retry "$on" FAKE_CLAIM_CODES="2 0" FAKE_CLAIM_MSG="no herdr agent detected in pane w1:p1"
+check_ssi "agent not detected yet: says it retries in the background" \
+    bash -c '[[ "$1" == *"background retry"* ]]' _ "$(ctx)"
+sleep 2.5
+calls=$(wc -l < "$work/claim-retry.log" | tr -d ' ')
+[[ "$calls" == 2 ]] && echo "ok    session-start-integrator: the background retry claims the name (2 calls)" \
+    || { echo "FAIL  session-start-integrator: background retry made $calls call(s), want 2"; fails=$((fails + 1)); }
+
+# End to end with the real claim-integrator.sh and the fake herdr: an unnamed agent in the
+# integrator's pane is renamed at session start.
+sed -i.bak 's/"name":"integrator-on",//' "$FAKE_AGENTS" && rm -f "$FAKE_AGENTS.bak"
+: > "$FAKE_LOG"
+ss_out=$(jq -nc --arg d "$on" '{cwd: $d, hook_event_name: "SessionStart", source: "resume"}' \
+    | env PATH="$fake:$PATH" HERDR_ENV=1 CLAUDE_ROLE=integrator FAKE_PANE=w1:p1 "$ssi" 2>/dev/null)
+sleep 0.2
+if [[ "$(cat "$FAKE_LOG")" == "rename w1:p1 integrator-on" && "$(ctx)" == *"herdr agent integrator-on"* ]]; then
+    echo "ok    session-start-integrator: real claim renames the unnamed agent"
+else
+    echo "FAIL  session-start-integrator: real claim (log '$(cat "$FAKE_LOG")', output '$ss_out')"; fails=$((fails + 1))
+fi
+sed -i.bak 's/"pane_id":"w1:p1"/"name":"integrator-on","pane_id":"w1:p1"/' "$FAKE_AGENTS" && rm -f "$FAKE_AGENTS.bak"
 
 # The default integrator name: project-config.py computes it, template/scripts/integrator.sh
 # repeats the rule in Bash; both must agree, and match herdr's name rule.

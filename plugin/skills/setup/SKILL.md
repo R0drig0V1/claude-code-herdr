@@ -68,7 +68,7 @@ ls "$root"/scripts/check.sh "$root"/scripts/integrator.sh "$root"/.claude/prompt
   cannot dispatch (`claim-integrator.sh` exits 3). Offer to remove the key, which gives the
   per-repository default `integrator-<repository>`, or to set another unique name. Change it
   only after the user confirms, and tell them the running integrator takes the new name the
-  next time it runs `dispatch` or `integrate`.
+  next time a session starts (the SessionStart hook) or it runs `dispatch` or `integrate`.
 
 - This plugin not enabled, or project files missing: offer the installer from this plugin's
   repository (`install.sh --dry-run` first, then without it after the user confirms).

@@ -8,6 +8,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- SessionStart hook `session-start-integrator.sh`: an integrator session (`CLAUDE_ROLE=integrator`,
+  inside herdr, in the main worktree of a repository that enables the plugin) takes its herdr
+  name with `scripts/claim-integrator.sh` as it starts, relaunches and resumed sessions
+  included. Before, a relaunched integrator stayed an unnamed herdr agent until
+  `/multi-agent-herdr:integrate` or `dispatch` ran, and development agents' PR announcements
+  to `integrator_name` were lost meanwhile. herdr already lists the Claude agent at
+  SessionStart (checked live with herdr 0.9.5), so the first claim normally succeeds; a
+  detached worker retries "agent not detected" every 2 s for up to 60 s, and the hook waits at
+  most about 0.8 s, so it never holds session start. The session gets one line naming its
+  herdr agent, a note to ask the user when another live agent holds the name (exit 3), or a
+  short warning on any other failure. `dispatch` and `integrate` keep the claim as a fallback;
+  `template/scripts/integrator.sh` and `claim-integrator.sh` document the hook.
+
 ### Changed
 - `integrator_name` defaults to `integrator-<repository>` (the main worktree's directory name,
   lower case, runs outside `[a-z0-9_-]` replaced by `-`, cut to 32 characters) instead of

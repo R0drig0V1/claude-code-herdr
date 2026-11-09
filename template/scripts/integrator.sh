@@ -8,8 +8,11 @@
 # - Runs in the main worktree whatever directory it is called from.
 # - Requires herdr (HERDR_ENV=1): development agents reach the integrator as the herdr agent
 #   named after `integrator_name` in .claude/multi-agent-herdr.json (default
-#   `integrator-<repository directory name>`, see default_name below), which
-#   /multi-agent-herdr:integrate takes on its first run.
+#   `integrator-<repository directory name>`, see default_name below). The herdr agent does
+#   not exist before `exec claude`, so this script cannot name it: the plugin's SessionStart
+#   hook (session-start-integrator.sh) takes the name as each session starts, including
+#   relaunches and resumed sessions; /multi-agent-herdr:integrate and dispatch claim it again
+#   as a fallback.
 # - CLAUDE_ROLE=integrator exempts the session from the guard hooks.
 # - --name <integrator_name> names the Claude Code session the same way (read with jq when
 #   the settings file exists; this script belongs to the project and cannot reach the plugin).
