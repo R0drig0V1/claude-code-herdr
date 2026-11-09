@@ -12,7 +12,9 @@
 # process before herdr's own Claude hook reports the session; measured with herdr 0.9.5), so the
 # first attempt normally succeeds. The claim runs in a detached worker that retries exit 2
 # ("no herdr agent detected in pane") every 2 s for up to 60 s; the hook itself waits at most
-# about 0.8 s for the worker's first result, so session start is never blocked by herdr.
+# about 0.8 s for the worker's first result, so session start is never blocked by herdr. Its
+# own fixed cost is kept small (one jq, one git, the plugin_enabled check): the worker, not the
+# hook, looks up integrator_name (project-config.py, a Python start-up) for the messages.
 #
 # Only for CLAUDE_ROLE=integrator inside herdr (HERDR_ENV=1), in the main worktree of a
 # repository that enables the plugin; any other session gets nothing. Outcome, as
@@ -22,14 +24,15 @@ set -uo pipefail
 
 [[ "${CLAUDE_ROLE:-}" == integrator && "${HERDR_ENV:-}" == 1 ]] || exit 0
 
-input=$(cat)
-[[ -z "$(jq -r '.agent_id // empty' <<<"$input" 2>/dev/null)" ]] || exit 0   # subagent
-cwd=$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null)
+agent_id="" cwd=""
+{ IFS= read -r agent_id; IFS= read -r cwd; } < <(jq -r '(.agent_id // ""), (.cwd // "")' 2>/dev/null)
+[[ -z "$agent_id" ]] || exit 0   # subagent
 [[ -n "$cwd" && -d "$cwd" ]] || exit 0
 
-git_dir=$(git -C "$cwd" rev-parse --absolute-git-dir 2>/dev/null) || exit 0
-common_dir=$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
-[[ "$git_dir" == "$common_dir" ]] || exit 0   # a linked worktree is not the integrator's
+git_dir="" common_dir=""
+{ IFS= read -r git_dir; IFS= read -r common_dir; } < <(git -C "$cwd" rev-parse --absolute-git-dir \
+    --path-format=absolute --git-common-dir 2>/dev/null)
+[[ -n "$git_dir" && "$git_dir" == "$common_dir" ]] || exit 0   # a linked worktree is not the integrator's
 repo_root=$(dirname "$common_dir")
 
 # shellcheck source=plugin-enabled.sh
@@ -38,8 +41,6 @@ plugin_enabled "$repo_root" || exit 0
 
 plugin_root="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 claim="$plugin_root/scripts/claim-integrator.sh"
-name=$("$plugin_root/scripts/project-config.py" --root "$repo_root" integrator_name 2>/dev/null) \
-    || name="(integrator_name)"
 
 say() {  # say <context>
     jq -n --arg ctx "$1" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'
@@ -47,17 +48,20 @@ say() {  # say <context>
 }
 
 status_dir=$(mktemp -d "${TMPDIR:-/tmp}/multi-agent-herdr-claim.XXXXXX") \
-    || say "multi-agent-herdr: could not claim the herdr name $name (no temporary directory). Run \"\${CLAUDE_PLUGIN_ROOT}/scripts/claim-integrator.sh\" (or /multi-agent-herdr:integrate) before development agents announce PRs."
+    || say "multi-agent-herdr: could not claim the integrator's herdr name (no temporary directory). Run \"\${CLAUDE_PLUGIN_ROOT}/scripts/claim-integrator.sh\" (or /multi-agent-herdr:integrate) before development agents announce PRs."
 
-# The worker writes the first attempt's exit code and output to $status_dir/first (renamed
-# into place, so the hook never reads half a file), then keeps retrying exit 2 alone. The hook
-# owns $status_dir and removes it; later writes into a removed directory just fail.
+# The worker writes the first attempt's exit code, integrator_name and output to
+# $status_dir/first (renamed into place, so the hook never reads half a file), then keeps
+# retrying exit 2 alone. The hook owns $status_dir and removes it; later writes into a removed
+# directory just fail.
 (
     cd "$repo_root" || exit 0
     for attempt in $(seq 1 31); do
         out=$("$claim" 2>&1); rc=$?
         if [[ $attempt == 1 ]]; then
-            printf '%s\n%s\n' "$rc" "$out" > "$status_dir/first.tmp" 2>/dev/null \
+            name=$("$plugin_root/scripts/project-config.py" --root "$repo_root" integrator_name \
+                2>/dev/null) || name="(integrator_name)"
+            printf '%s\n%s\n%s\n' "$rc" "$name" "$out" > "$status_dir/first.tmp" 2>/dev/null \
                 && mv -f "$status_dir/first.tmp" "$status_dir/first" 2>/dev/null
         fi
         [[ $rc == 2 ]] || break
@@ -72,10 +76,9 @@ for _ in $(seq 1 16); do
 done
 if [[ ! -f "$status_dir/first" ]]; then
     rm -rf "$status_dir"
-    say "multi-agent-herdr: claiming the herdr name $name is still running in the background (herdr answered slowly). Check with \`herdr agent list\`; /multi-agent-herdr:integrate and dispatch claim it again."
+    say "multi-agent-herdr: claiming the integrator's herdr name (integrator_name) is still running in the background (herdr answered slowly). Check with \`herdr agent list\`; /multi-agent-herdr:integrate and dispatch claim it again."
 fi
-rc=$(head -n 1 "$status_dir/first")
-out=$(tail -n +2 "$status_dir/first")
+{ IFS= read -r rc; IFS= read -r name; out=$(cat); } < "$status_dir/first"
 rm -rf "$status_dir"
 
 case "$rc" in
