@@ -39,8 +39,11 @@ test "${HERDR_ENV:-}" = 1                              # inside herdr
 ```
 
 Development agents announce to the herdr agent named `<integrator>`; `claim-integrator.sh`
-gives you that name (exit 0). Exit 3 means another live agent holds it: herdr names are
-unique per server, so there is one integrator per herdr server. Stop and ask the user.
+gives you that name (exit 0). The plugin's SessionStart hook normally claimed it when this
+session started; running it here is the fallback (for example when herdr detected the session
+late) and exits 0 at once when you already hold it. Exit 3 means another live agent holds it:
+herdr names are unique per server, so there is one integrator per herdr server. Stop and ask
+the user.
 
 A dirty main worktree means someone broke the rule: do not stash or discard it. Report the
 files to the user and stop.

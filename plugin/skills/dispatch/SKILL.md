@@ -38,9 +38,11 @@ Below, **`<base>`** is `base_branch` (default `main`) and **`<integrator>`** is
 because shell variables do not survive from one command to the next.
 
 The new agent's `/multi-agent-herdr:pr` announces to the herdr agent `<integrator>` in this
-repository's main worktree, so you must hold that name before dispatching. Exit 3 means
-another live agent holds it (herdr names are unique per server: one integrator per herdr
-server); stop and ask the user.
+repository's main worktree, so you must hold that name before dispatching. The plugin's
+SessionStart hook normally claimed it when this session started; `claim-integrator.sh` here is
+the fallback and exits 0 at once when you already hold it. Exit 3 means another live agent
+holds it (herdr names are unique per server: one integrator per herdr server); stop and ask
+the user.
 
 Outside herdr, stop: this plugin is herdr only.
 

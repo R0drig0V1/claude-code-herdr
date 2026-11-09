@@ -120,8 +120,15 @@ the promotion procedure the project documents in `CLAUDE.md` or
 | Development agent | Started by `dispatch` inside its worktree: work, `/multi-agent-herdr:commit`, `/multi-agent-herdr:pr` |
 | Before a phase | `/multi-agent-herdr:improve-plan` (red-team review of `docs/phases/`) |
 
-The integrator's herdr agent is named after `integrator_name`: `dispatch` and `integrate`
-take the name first (`scripts/claim-integrator.sh`). herdr names are unique per **server**,
+The integrator's herdr agent is named after `integrator_name`. `scripts/integrator.sh` cannot
+name it (the herdr agent does not exist before `exec claude`), so the SessionStart hook
+`session-start-integrator.sh` takes the name as every integrator session starts, relaunched
+and resumed ones included: for `CLAUDE_ROLE=integrator` inside herdr in the main worktree it
+runs `scripts/claim-integrator.sh` and tells the session the outcome (its herdr name, another
+agent holding it, or a warning). herdr already lists the Claude agent at SessionStart, so the
+claim normally succeeds at once; if it does not, a detached retry keeps trying for 60 s, and
+the hook never holds session start for more than about a second. `dispatch` and `integrate`
+still run the claim first, as a fallback. herdr names are unique per **server**,
 not per repository, which is why the default carries the repository: several projects can
 each run their integrator on one herdr server. Two repositories whose names normalise to the
 same default (the first 21 characters after `integrator-` agree) clash; set `integrator_name`
@@ -146,10 +153,11 @@ their settings and keep it; `/multi-agent-herdr:setup` offers to remove the key.
 | Agent | `plan-adversary`, `code-reviewer` | Read-only plan red team; read-only bug and security reviewer |
 | Hook | `guard-main-worktree.sh`, `guard-main-bash.py` | Block Edit/Write, shell writes, mutating git, dependency changes and formatters in the main worktree, plus `gh pr merge`, pushes to `main`, and herdr commands that type into another pane (see Rules) |
 | Hook | `session-start-worktree.sh` | Tells sessions in the main worktree to route changes through the integrator's `dispatch` |
+| Hook | `session-start-integrator.sh` | Gives the integrator session its herdr name (`claim-integrator.sh`) as it starts, relaunches and resumes included |
 | Hook | `notify.sh` | Sound and terminal bell on Stop / Notification |
 | Script | `new-worktree.sh`, `verify-merge.sh` | Worktree creation; verification gate whose exit code is the verdict |
 | Script | `agents-in-repo.py` | Read-only: live herdr agents whose pane cwd is in a worktree of this repository (`--branch`, `--name`, `--main-worktree`) |
-| Script | `claim-integrator.sh` | Gives the integrator session its herdr name (`integrator_name`), or refuses when another agent holds it |
+| Script | `claim-integrator.sh` | Gives the integrator session its herdr name (`integrator_name`), or refuses when another agent holds it; run by the SessionStart hook, and by `dispatch` and `integrate` as a fallback |
 | Script | `project-config.py` | Reads and validates `.claude/multi-agent-herdr.json` (see Configuration) |
 
 Project-owned files from `template/`: `CLAUDE.md`, `scripts/check.sh` (your definition of
