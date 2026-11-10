@@ -71,6 +71,10 @@ integrator.
   The plugin's hooks block any other session from changing it: Edit/Write in the main
   worktree, and in the shell git commits/checkouts, file writes, dependency installs, pushes
   to `main`, the base branch or `protected_branches`, and `gh pr merge`.
+- **Move work forward proactively.** The integrator starts agents for every task that can
+  start now, without waiting to be asked task by task. Writing code is always worth starting
+  early. Do not force it: no agents for undecided designs, for work that collides with a
+  branch in flight, or for work a pending decision would make us amend.
 - **Every development agent has its own worktree and its own herdr workspace.** The integrator
   starts it with `/multi-agent-herdr:dispatch <type>/<name> <task>`: `new-worktree.sh` creates
   `../<repo>-<name>` with its own branch (and runs `scripts/worktree-setup.sh` there, if the
