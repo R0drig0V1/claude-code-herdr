@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: Integrator only, inside herdr - start a development agent for one task in its own git worktree and its own herdr workspace (a separate sidebar entry), then send it the brief. Use in the integrator session (main worktree, CLAUDE_ROLE=integrator, HERDR_ENV=1) when the user asks to dispatch, delegate or hand a task to a new agent ("dispatch", "lanza un agente para", "delega esto", "/dispatch").
+description: Integrator only, inside herdr - start a development agent for one task in its own git worktree and its own herdr workspace (a separate sidebar entry), then send it the brief. Use in the integrator session (main worktree, CLAUDE_ROLE=integrator, HERDR_ENV=1) when the user asks to dispatch, delegate or hand a task to a new agent ("dispatch", "lanza un agente para", "delega esto", "/dispatch"), and proactively whenever a task that can start now is waiting (see "Dispatch proactively").
 argument-hint: "<type>/<short-kebab-name> <task description>  e.g. docs/readme-typo Fix the typo in README"
 ---
 
@@ -21,6 +21,24 @@ You are the integrator. You do not develop the task yourself: you create its wor
 its own herdr workspace and start one development agent there. The user explicitly wants each
 agent as a **separate workspace in the herdr sidebar**: never `herdr pane split`, never a new
 tab in your workspace, even though the generic herdr skill defaults to sibling panes.
+
+## Dispatch proactively
+
+Do not wait to be asked task by task. Whenever work can be moved forward now, start an agent
+for it:
+
+- **Ready means it can start now:** the task is clear, and it does not wait on an open
+  decision, on an unmerged change it builds on, or on an answer from the user.
+- **Writing code is always worth starting early.** That includes implementing the next
+  tasks of the plan, the tests they need, and the refactors the plan already calls for. Code
+  written early is cheap to review; idle time is not.
+- **Do not force it.** Hold back work whose design is still being decided, work that would
+  collide with a branch in flight (the same files or migrations), and work that would have
+  to be amended once a pending decision lands. Starting such work only creates rework.
+- **Within the machine's means.** Every agent costs memory: do not start more than the
+  computer can carry.
+- **Say what you started and why.** Tell the user in one line per agent, so they can stop
+  anything they did not want.
 
 ## 0. Preconditions (stop and tell the user if any fails)
 
