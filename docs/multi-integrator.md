@@ -207,6 +207,7 @@ claim.
 | Failure | What happens | Recovery |
 |---------|--------------|----------|
 | An integrator crashes **before or during the verification** | its claim stops heartbeating; its herdr agent disappears, so the claim is stale at once | another integrator re-claims the PR from the queue (`stale`); when the member is respawned, `integrate-pr.sh` aborts the merge left in its own worktree |
+| A merged agent's worktree is never cleaned up (the dispatcher was down, the agent stayed busy) | its session keeps memory; the branch stays | `cleanup-worktree.sh --list` on the next pass finds it `ready` or tells why not |
 | An integrator crashes **holding the merge lock** | the kernel releases the `flock` with the process | the next `lock run` proceeds; the push either happened (atomic on the remote) or not |
 | An integrator crashes **after the push, before its verdict/report** | the PR is merged on GitHub (the head is in `<base>`), the claim goes stale, no plan report | the PR leaves the open queue by itself; the coordinator's catch-up step finds the merged PR without a report and ticks it; the author sees the merge on GitHub (no herdr verdict) |
 | Two integrators claim the same PR | exactly one `mkdir` succeeds | the loser gets exit 3 and takes the next PR |
@@ -357,6 +358,41 @@ The reasoning behind the defaults:
 
 So: sessions ≈ RAM / 2 and heavy slots ≈ (RAM − 8) / 8. Measure the project's own check
 (peak RSS of `scripts/check.sh`, for example with `/usr/bin/time -l`) and adjust.
+
+## Cleanup
+
+A worktree whose branch was merged has done its job. Left behind, it keeps a Claude session,
+that session's memory and its installed dependencies alive, and the branch list only grows.
+So the one who dispatched the agent discards it after the merge: the integrator in single
+mode, the coordinator in pool mode. That is the one who opened the workspace, so it may
+close it. The flow:
+
+1. The merged verdict tells the author its task is done: report to the user in one line,
+   clear its resource-board note, and stop.
+2. `cleanup-worktree.sh --list` shows every development worktree and its state: `ready`,
+   `merged-agent-busy`, `merged-but-dirty` or `not-merged`.
+3. `cleanup-worktree.sh <branch>` removes nothing unless every check passes:
+   - GitHub has a merged PR from the branch into `<base>`, and the branch tip is contained in
+     `origin/<base>`, so nothing was added after the merge. Ancestry alone is not enough: a
+     branch dispatched a minute ago, with no commit yet, is also contained in the base.
+   - The worktree has no uncommitted or untracked file.
+   - Every agent in the worktree is `idle` or `done`.
+   - Every pane of the workspace to close is inside the worktree.
+
+   Then it:
+   - closes the workspace;
+   - runs `git worktree remove` (never `--force`);
+   - deletes the local branch;
+   - deletes the remote branch, only when it still points at the merged tip (with a lease
+     on that commit);
+   - clears the agents' board notes.
+4. Exit 5 (the agent is still busy) means try again on the next pass. Exit 4 (uncommitted
+   work) goes to the author or the user and is never discarded. A `not-merged` branch nobody
+   works on is the user's call.
+
+Pool members' verify worktrees are kept across `stop`, so the next spawn reuses their
+dependencies. `integrator-pool.sh stop <n> --remove-worktree` discards one when the pool
+shrinks for good.
 
 ## integrate-pr.sh
 

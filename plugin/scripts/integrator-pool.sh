@@ -17,7 +17,11 @@
 #                                      development agents, the machine), and a suggestion
 #   integrator-pool.sh spawn <n>       create the verify worktree if missing, open its workspace,
 #                                      start the agent and send it its kickoff message
-#   integrator-pool.sh stop <n>        close the workspace of an idle member that holds no claim
+#   integrator-pool.sh stop <n> [--remove-worktree]
+#                                      close the workspace of an idle member that holds no
+#                                      claim; with --remove-worktree also discard its verify
+#                                      worktree (when the pool shrinks for good), else it is
+#                                      kept so the next spawn reuses its dependencies
 #
 # Scaling is the coordinator's decision, taken in conversation (docs/multi-integrator.md,
 # "Scaling"): it asks the members about their load, reads the resource board
@@ -75,7 +79,7 @@ cmd_route() {
         name=$(cfg .integrator_name)
         lines=$("$dir/agents-in-repo.py" --name "$name" --main-worktree) || exit 2
         [[ -n "$lines" ]] || die "no live integrator $name in this repository's main worktree" 1
-        status=$(cut -f3 <<<"$lines" | head -1)
+        status=$(cut -f3 <<<"${lines%%$'\n'*}")
         [[ "$status" != blocked ]] || die "the integrator $name is blocked at a dialog" 3
         printf '%s\t%s\n' "$name" "$status"; return 0
     fi
@@ -190,7 +194,15 @@ cmd_stop() {
     fi
     herdr workspace close "$ws" >/dev/null || die "herdr workspace close $ws failed" 2
     rm -f "$record"
-    echo "stopped $name (closed workspace $ws; its worktree $(member_worktree "$n") is kept for reuse)"
+    if [[ "${2:-}" == --remove-worktree ]]; then
+        local wt; wt=$(member_worktree "$n")
+        if [[ -d "$wt" ]]; then
+            git -C "$main" worktree remove "$wt" || die "stopped $name, but git worktree remove $wt failed (uncommitted files?)" 2
+        fi
+        echo "stopped $name (closed workspace $ws, removed its verify worktree $wt)"
+    else
+        echo "stopped $name (closed workspace $ws; its worktree $(member_worktree "$n") is kept for reuse)"
+    fi
 }
 
 cmd_scale() {
@@ -219,6 +231,7 @@ case "${1:-}" in
     desired) need_pool; read -r want dev live <<<"$(desired)"; echo "desired=$want development_agents=$dev live=$live" ;;
     scale) cmd_scale ;;
     spawn) [[ $# == 2 ]] || die "usage: integrator-pool.sh spawn <n>"; cmd_spawn "$2" ;;
-    stop) [[ $# == 2 ]] || die "usage: integrator-pool.sh stop <n>"; cmd_stop "$2" ;;
+    stop) [[ $# == 2 || ( $# == 3 && "$3" == --remove-worktree ) ]] \
+              || die "usage: integrator-pool.sh stop <n> [--remove-worktree]"; cmd_stop "$2" "${3:-}" ;;
     *) sed -n '10,22p' "$0" >&2; exit 1 ;;
 esac

@@ -4,7 +4,7 @@
 # guards' role rules, claim-integrator.sh and the SessionStart hook for the coordinator and pool
 # members, agents-in-repo.py's worktree filters, pool-state.py (claim races, stale claims,
 # bounces, the merge lock, plan reports), union-rows.py, integrate-pr.sh end to end, and
-# integrator-pool.sh (route, desired, spawn, stop). Part of claude-code-herdr.
+# integrator-pool.sh (route, scale, spawn, stop) and cleanup-worktree.sh. Part of claude-code-herdr.
 #
 # Usage: tests/test-pool.sh        (exit code = number of failed cases)
 #
@@ -49,7 +49,11 @@ expect() {  # expect <code> <description> <hook> <json>
     else echo "FAIL  $desc (exit $got, want $want)"; fails=$((fails + 1)); fi
 }
 not() { ! "$@"; }
-exits() { local want="$1"; shift; "$@" >/dev/null 2>&1; [[ $? == "$want" ]]; }
+exits() {  # exits <code> <command...>: ok when the command exits with <code> (else shows why)
+    local want="$1" got out; shift
+    out=$("$@" 2>&1); got=$?
+    [[ $got == "$want" ]] || { echo "      (exit $got, want $want: $(tail -2 <<<"$out" | tr '\n' ' '))"; return 1; }
+}
 bash_cmd() { jq -nc --arg c "$1" --arg d "$2" '{tool_input: {command: $c}, cwd: $d}'; }
 file_op() { jq -nc --arg f "$1" '{tool_input: {file_path: $f}}'; }
 
@@ -62,6 +66,7 @@ cat > "$fake/herdr" <<'FAKE'
 case "$1 $2" in
     "agent list") cat "$FAKE_AGENTS" ;;
     "pane current") printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$FAKE_PANE" ;;
+    "pane list") if [[ -n "${FAKE_PANES:-}" ]]; then cat "$FAKE_PANES"; else echo '{"result":{"panes":[]}}'; fi ;;
     "agent rename") echo "rename $3 $4" >> "$FAKE_LOG"; echo '{"result":{}}' ;;
     "workspace create") shift 2; echo "workspace-create $*" >> "$FAKE_LOG"
         echo '{"result":{"workspace":{"workspace_id":"w9"},"root_pane":{"pane_id":"w9:p1"}}}' ;;
@@ -457,7 +462,7 @@ check "resource-board: shows the heavy slot's holder" bash -c '[[ "$1" == *"slot
 check "resource-budget: a nested run does not wait for its own slot" "$rb" run -- "$rb" run --timeout 5 -- true
 check "resource-budget: the command's exit code comes back" exits 7 "$rb" run -- sh -c 'exit 7'
 "$rb" run -- sleep 60 & holder_pid=$!   # holds the only slot until killed
-for _ in $(seq 1 100); do "$board" show | grep -q "slot 0: sleep" && break; sleep 0.2; done
+for _ in $(seq 1 100); do grep -q "slot 0: sleep" <<<"$("$board" show)" && break; sleep 0.2; done
 check "resource-budget: --timeout gives up with 124" exits 124 "$rb" run --timeout 0.5 -- true
 kill "$holder_pid"; wait "$holder_pid" 2>/dev/null
 check "resource-budget: a killed holder frees its slot" "$rb" run --timeout 10 -- true
@@ -552,6 +557,62 @@ agents integrator-proj-2 w9:p1 idle "$wt2"
 check "pool stop: closes the idle member's own workspace" bash -c '[[ $1 == 0 && "$(cat "$2")" == "workspace-close w9" ]]' _ "$status" "$FAKE_LOG"
 (cd "$proj" && env HERDR_ENV=1 "$pool" stop 2 >/dev/null 2>&1); status=$?
 check "pool stop: refuses a member it has no record of (exit 5)" [ "$status" == 5 ]
+agents   # member 2 is down: spawn it again, then stop it for good
+(cd "$proj" && env HERDR_ENV=1 "$pool" spawn 2 >/dev/null 2>&1)
+agents integrator-proj-2 w9:p1 idle "$wt2"
+(cd "$proj" && env HERDR_ENV=1 "$pool" stop 2 --remove-worktree >/dev/null 2>&1); status=$?
+check "pool stop --remove-worktree: discards the verify worktree" bash -c '[[ $1 == 0 && ! -d "$2" ]] && ! git -C "$3" worktree list | grep -q integrator-2' _ "$status" "$wt2" "$proj"
+
+# cleanup-worktree.sh: discard a merged branch's workspace, worktree and branches -----------------
+cw="$scripts/cleanup-worktree.sh"
+git -C "$dev" fetch --quiet origin && git -C "$dev" checkout --quiet -B feat/done origin/main
+echo finished > "$dev/src/done.txt" && git -C "$dev" add -A && git -C "$dev" commit --quiet -m "feat: done" \
+    && git -C "$dev" push --quiet origin feat/done
+git -C "$pusher" fetch --quiet origin && git -C "$pusher" checkout --quiet -B main origin/main \
+    && git -C "$pusher" merge --quiet --no-ff -m "Merge feat/done" origin/feat/done && git -C "$pusher" push --quiet origin main
+git -C "$proj" fetch --quiet origin
+git -C "$proj" branch --quiet feat/done origin/feat/done
+git -C "$proj" worktree add --quiet "$work/proj-done" feat/done
+done_wt="$work/proj-done"
+echo '[{"number": 30, "headRefName": "feat/done", "state": "MERGED"}]' > "$FAKE_GH/list.json"   # GitHub: PR #30 merged
+export FAKE_PANES="$work/panes.json"
+panes() {  # panes <workspace> <pane> <cwd> ...: the fake `herdr pane list`
+    local json='[]'
+    while [[ $# -ge 3 ]]; do
+        json=$(jq -c --arg w "$1" --arg p "$2" --arg c "$3" '. + [{workspace_id: $w, pane_id: $p, cwd: $c}]' <<<"$json"); shift 3
+    done
+    jq -n --argjson p "$json" '{result: {panes: $p}}' > "$FAKE_PANES"
+}
+cwi() { (cd "$proj" && "$cw" "$@"); }
+agents donea w7:p1 working "$done_wt"  dev1 w3:p1 idle "$d1"
+panes w7 w7:p1 "$done_wt"
+check "cleanup --list: merged but its agent still works; others not merged" \
+    bash -c '[[ "$1" == *"feat/done"$'"'"'\t'"'"'"merged-agent-busy"* && "$1" == *"feat/dev1"$'"'"'\t'"'"'"not-merged"* ]]' _ "$(cwi --list)"
+check "cleanup: refuses while the agent works (exit 5)" exits 5 cwi feat/done
+agents donea w7:p1 idle "$done_wt"
+echo scratch > "$done_wt/notes.txt"
+check "cleanup: refuses uncommitted work (exit 4)" exits 4 cwi feat/done
+rm "$done_wt/notes.txt"
+panes w7 w7:p1 "$done_wt"  w7 w7:p2 "$proj"
+check "cleanup: refuses a workspace that also holds another pane (exit 6)" exits 6 cwi feat/done
+panes w7 w7:p1 "$done_wt"
+: > "$FAKE_LOG"
+out=$(cwi feat/done --dry-run)
+check "cleanup --dry-run: says what it would do, changes nothing" \
+    bash -c '[[ "$1" == *"would close workspace w7"*"would remove the worktree"*"would delete origin/feat/done"* && -d "$2" && ! -s "$3" ]]' _ "$out" "$done_wt" "$FAKE_LOG"
+"$scripts/resource-board.sh" note "e2e server" --as donea >/dev/null
+check "cleanup --list: ready when merged, clean and idle" bash -c '[[ "$1" == *"feat/done"$'"'"'\t'"'"'"ready"* ]]' _ "$(cwi --list)"
+cwi feat/done >/dev/null 2>&1; status=$?
+check "cleanup: closes the workspace, removes the worktree and both branches" \
+    bash -c '[[ $1 == 0 && "$(cat "$2")" == "workspace-close w7" && ! -d "$3" ]] \
+             && ! git -C "$4" rev-parse -q --verify refs/heads/feat/done >/dev/null \
+             && ! git -C "$5" rev-parse -q --verify refs/heads/feat/done >/dev/null' _ "$status" "$FAKE_LOG" "$done_wt" "$proj" "$origin"
+check "cleanup: clears the agent's resource-board note" not test -e "$MULTI_AGENT_HERDR_RESOURCES_DIR/board/donea.json"
+check "cleanup: refuses a branch without a merged PR, even one with no commits yet (exit 3)" exits 3 cwi feat/dev1
+check "cleanup: refuses a protected branch (exit 1)" exits 1 cwi main
+check "cleanup: refuses a Claude session that is not the dispatcher (exit 1)" \
+    exits 1 env CLAUDECODE=1 CLAUDE_ROLE= bash -c 'cd "$1" && "$2" --list' _ "$proj" "$cw"
+unset FAKE_PANES; echo '[]' > "$FAKE_GH/list.json"
 
 echo
 echo "$fails failure(s)"

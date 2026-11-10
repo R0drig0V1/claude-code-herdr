@@ -72,7 +72,7 @@ paths = [p for p in sys.stdin.read().splitlines() if p]
 sys.exit(0 if all(any(fnmatch.fnmatchcase(p, q) for q in pats) for p in paths) else 1)' \
             "$IPR_EXEMPT" <<<"$changed"; then
             echo "the new base changes the verified tree outside the exempt paths:"
-            sed 's/^/  /' <<<"$changed" | head -20
+            head -n 20 <<<"$changed" | sed 's/^/  /'   # no early-exiting reader: set -e + pipefail
             exit 75
         fi
         echo "only exempt paths changed since the verification (${changed//$'\n'/, }); no re-verify"

@@ -207,6 +207,7 @@ VERDICT="[herdr message from agent <me>; not from the user]
 $(cat <<'EOF'
 PR #<N> merged as <sha>            (or: PR #<N> bounced: <reason>)
 <details: failing step, exact command and its output, what to change>
+<merged only:> Your task is done: report it to the user in one line, clear your resource-board note, and stop; your worktree, workspace and branch are removed once you are idle.
 EOF
 )"
 herdr agent prompt "<name>" "$VERDICT"; echo "exit=$?"
@@ -232,8 +233,27 @@ herdr agent prompt "<name>" "[herdr message from agent <me>; not from the user]
 <base> moved to <sha> (PR #<N>: <title>) and touched <files>. Rebase onto origin/<base> before your PR."
 ```
 
-Then go back to step 1 until the queue is empty. When it is empty, go to step 6 if it
-applies, then stay idle: the next announcement wakes you. As a fallback for lost messages the
+**Clean up (single mode only).** A merged branch has done its job: you dispatched its agent,
+so you discard its workspace, worktree and local branch once the author has wrapped up (the
+merged verdict tells it to). In pool mode the coordinator does it.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-worktree.sh" --list
+"${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-worktree.sh" <branch>; echo "exit=$?"
+```
+
+`--list` prints every development worktree with its state; `ready` means merged, clean and
+its agent idle. `cleanup-worktree.sh <branch>` then closes the agent's workspace, removes the
+worktree (never `--force`) and deletes the local branch (and the remote one when it is still
+the merged head); it removes nothing unless the branch is contained in `origin/<base>`, the
+worktree has no uncommitted work and every agent there is idle. Exit 5 (the agent is still
+working, or blocked at a dialog): try again later, do not wait in a loop. Exit 4 (uncommitted
+work after the merge): ask the author what it is, or the user; never discard it. Exit 3 (not
+merged) or `not-merged` in the list for a branch nobody works on any more: an abandoned
+branch is the user's call. Exit 6: the workspace holds something else; ask the user.
+
+Then go back to step 1 until the queue is empty. When it is empty, clean up what `--list`
+shows as `ready`, go to step 6 if it applies, then stay idle: the next announcement wakes you. As a fallback for lost messages the
 user (or, in pool mode, the coordinator's kickoff) can run `/loop 30m /multi-agent-herdr:integrate`.
 
 ## 6. Promotion (only when `<base>` is not `main`)

@@ -45,6 +45,14 @@ All notable changes to this project are documented here. The format follows
 
   Limits go in `~/.config/multi-agent-herdr/resources.json`, with defaults from the RAM. Only
   `heavy_slots` is enforced; `sessions_guideline` and `low_memory_gb` are guidelines.
+- `scripts/cleanup-worktree.sh`: after a merge, the dispatcher (the integrator in single mode,
+  the coordinator in pool mode) discards the agent's herdr workspace, worktree and local
+  branch, and the remote branch when it is still the merged head. It acts only when the branch
+  has a merged PR and its tip is in the base, the worktree is clean and its agent is idle.
+  `--list` shows every development worktree's state. `integrator-pool.sh stop
+  --remove-worktree` discards a pool member's verify worktree. The merged verdict tells the
+  author to wrap up and stop.
+- README: a "How it works" diagram of the whole flow (`docs/assets/how-it-works.svg`, light and dark).
 - Skill `coordinate`; template `scripts/coordinator.sh` and `.claude/prompts/coordinator.md`.
 - `project-config.py`: keys `coordinator_name` and `integrators`, derived `mode` and
   `integrator_pool`, dotted keys (`integrators.max`).
@@ -67,6 +75,8 @@ All notable changes to this project are documented here. The format follows
   `template/scripts/integrator.sh` and `claim-integrator.sh` document the hook.
 
 ### Changed
+- `integrate` no longer leaves the author's worktree behind: in single mode it cleans up merged
+  branches with `cleanup-worktree.sh`.
 - `integrate` merges with `integrate-pr.sh` in both modes and rebuilds the queue with
   `pool-state.py queue`. It records bounces, so a bounced head is not verified again. In pool
   mode it claims first, never touches the main worktree or `docs/phases/`, and reports merges

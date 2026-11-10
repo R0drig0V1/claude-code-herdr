@@ -35,6 +35,11 @@ granolax as the example. The plugin does not edit the project; the project's own
 - [ ] **Disk**: each integrator gets its own verify worktree (`../granolax-integrator-<n>`)
       with its own `.venv` and `web/node_modules`, installed once by `scripts/worktree-setup.sh`
       and kept across stops.
+- [ ] **Clean up what is already finished.** Until now nothing removed merged worktrees.
+      Run `cleanup-worktree.sh --list` in granolax's main worktree. For each `ready` branch,
+      run `cleanup-worktree.sh <branch>`, which closes the workspace and removes the
+      worktree and branches. Branches marked `merged-but-dirty` and `not-merged` are yours
+      to decide. This also gives memory back: each finished worktree keeps a session alive.
 - [ ] **Let the current integrator finish** the PR it is merging. Note the open PRs: they
       stay in GitHub's queue, and the pool picks them up.
 

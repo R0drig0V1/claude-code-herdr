@@ -29,12 +29,36 @@ ported and made herdr native); do not enable both in one project.
   resource board (`resource-board.sh show`, the live sheet) and ask the coordinator for a turn;
   underneath, at most `heavy_slots` heavy checks run at once on the machine.
 
-```text
-integrator: /multi-agent-herdr:dispatch docs/readme-typo "Fix the typo in README"
-  -> ../<repo>-readme-typo (new-worktree.sh) -> herdr workspace "readme-typo" -> agent "readme-typo"
-readme-typo: works in its worktree -> /multi-agent-herdr:commit -> /multi-agent-herdr:pr (announces)
-integrator: /multi-agent-herdr:integrate (verify, merge or bounce, PR comment, herdr verdict)
-```
+- **Finished work is cleaned up.** Once a branch is merged, whoever dispatched its agent
+  closes its workspace and removes its worktree and branches (`cleanup-worktree.sh`).
+
+## How it works
+
+Pool mode, one task from request to cleanup. Solid arrows are actions, dashed ones herdr
+messages. Single mode is the same flow, with one integrator in the main worktree that also
+plays the coordinator's part.
+
+<p align="center">
+  <img src="docs/assets/how-it-works.svg" width="100%"
+       alt="Swimlane diagram of pool mode: the coordinator dispatches a development agent; the agent negotiates resources with the coordinator, opens a PR and announces it to the integrator pool; one integrator claims it, verifies it in its own worktree inside a heavy slot, bounces it or pushes main under the merge lock, sends the verdict to the author and the merge report to the coordinator, which ticks the plan and cleans up the worktree.">
+</p>
+
+The same in words, for one PR:
+
+1. You ask the **coordinator** for something. It reads the resource board, then dispatches a
+   **development agent** in a worktree and herdr workspace of its own.
+2. The agent works. It asks the coordinator its questions and its resource requests, and runs
+   the checks inside a heavy slot.
+3. The agent opens a PR and announces it to one idle **integrator** of the pool.
+4. An integrator claims the PR. Only one can. It reviews the PR, merges it in its own verify
+   worktree, and runs the project's checks.
+5. Red: the integrator bounces the PR straight to the author.
+
+   Green: it pushes `main` under the merge lock. If `main` moved during the verification, it
+   merges again and re-verifies, unless the plan was the only change.
+6. The verdict goes straight to the author. The merge report goes to the coordinator, which
+   ticks the plan.
+7. When the author goes idle, the coordinator discards its workspace, worktree and branch.
 
 ## Install
 
@@ -200,9 +224,10 @@ their settings and keep it; `/multi-agent-herdr:setup` offers to remove the key.
 | Script | `project-config.py` | Reads and validates `.claude/multi-agent-herdr.json` (see Configuration) |
 | Script | `integrate-pr.sh` | One PR, gated step by step: merge, `verify-merge.sh`, commit, push under the merge lock (re-verify when the base moved), branch deletion only when nothing moved; exit code = outcome |
 | Script | `pool-state.py` | Pool state in the git common dir: atomic PR claims, bounced heads, the merge lock (`lock run`), plan reports |
-| Script | `integrator-pool.sh` | `list`, `route` (who `pr` announces to), `scale` (facts and a suggestion; the coordinator decides), `spawn <n>`, `stop <n>` |
+| Script | `integrator-pool.sh` | `list`, `route` (who `pr` announces to), `scale` (facts and a suggestion; the coordinator decides), `spawn <n>`, `stop <n> [--remove-worktree]` |
 | Script | `resource-budget.py` | The hard floor: at most `heavy_slots` heavy commands at once on the machine (`run`), and the limits (`limits`) |
 | Script | `resource-board.sh` | The shared resource sheet: agents `note` and `clear` what they run; `show` prints memory, slots, notes and idle agents |
+| Script | `cleanup-worktree.sh` | After a merge: `--list` the development worktrees and their state; `<branch>` closes the agent's workspace, removes the worktree and deletes the branches, only when merged (a merged PR, tip in the base), clean and idle |
 | Script | `union-rows.py` | The one conflict integrators resolve: rows added to the same index table (refuses duplicate keys) |
 
 Project-owned files from `template/`: `CLAUDE.md`, `scripts/check.sh` (your definition of

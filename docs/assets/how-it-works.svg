@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1060" height="1000" viewBox="0 0 1060 1000" role="img" aria-labelledby="t d">
+<!-- The README's "How it works" diagram (pool mode). Plain SVG with light and dark styles (prefers-color-scheme); edit the coordinates by hand. -->
+<title id="t">How multi-agent-herdr works (pool mode)</title>
+<desc id="d">Swimlane diagram: the coordinator dispatches a development agent, the agent negotiates resources with the coordinator, opens a pull request and announces it to the integrator pool; one integrator claims it, verifies it in its own worktree inside a heavy slot, bounces it or pushes main under the merge lock, sends the verdict to the author and the merge report to the coordinator, which ticks the plan and cleans up the worktree.</desc>
+<style>
+  .bg{fill:#ffffff}
+  .txt{fill:#1f2328;font:12.5px -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+  .title{font-weight:600;font-size:15px}
+  .sub{fill:#59636e;font-size:11.5px}
+  .lbl{fill:#59636e;font-size:11.5px;font-style:italic}
+  .num{fill:#ffffff;font-weight:700;font-size:11px}
+  .arrow{stroke:#59636e;stroke-width:1.6;fill:none}
+  .msg{stroke-dasharray:6 4}
+  .red{stroke:#cf222e}
+  .redtxt{fill:#cf222e}
+  .head-coord{fill:#8250df}.head-dev{fill:#0969da}.head-gh{fill:#59636e}.head-pool{fill:#1a7f37}
+  .lane-coord{fill:#fbf8ff}.lane-dev{fill:#f6f9ff}.lane-gh{fill:#f6f8fa}.lane-pool{fill:#f6fbf7}
+  .box{fill:#ffffff;stroke-width:1.4}
+  .box-coord{stroke:#8250df}.box-dev{stroke:#0969da}.box-gh{stroke:#59636e}.box-pool{stroke:#1a7f37}
+  .box-red{stroke:#cf222e;fill:#fff8f8}
+  .box-gone{stroke:#8c959f;stroke-dasharray:4 3;fill:none}
+  .badge-coord{fill:#8250df}.badge-dev{fill:#0969da}.badge-pool{fill:#1a7f37}
+  .ah{fill:#59636e}.ah-red{fill:#cf222e}
+  .headtxt{fill:#ffffff}
+  .headsub{fill:#ffffff;opacity:.85}
+  @media (prefers-color-scheme: dark){
+    .bg{fill:#0d1117}
+    .txt{fill:#e6edf3}
+    .sub,.lbl{fill:#9198a1}
+    .arrow{stroke:#9198a1}.ah{fill:#9198a1}
+    .red{stroke:#ff7b72}.redtxt{fill:#ff7b72}.ah-red{fill:#ff7b72}
+    .lane-coord{fill:#1a1430}.lane-dev{fill:#0f1a2e}.lane-gh{fill:#161b22}.lane-pool{fill:#0f1f17}
+    .box{fill:#0d1117}
+    .box-coord{stroke:#a371f7}.box-dev{stroke:#4493f8}.box-gh{stroke:#9198a1}.box-pool{stroke:#3fb950}
+    .box-red{stroke:#ff7b72;fill:#1f1214}
+    .head-coord{fill:#6e40c9}.head-dev{fill:#1f6feb}.head-gh{fill:#3d444d}.head-pool{fill:#238636}
+    .badge-coord{fill:#6e40c9}.badge-dev{fill:#1f6feb}.badge-pool{fill:#238636}
+  }
+</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker><marker id="ahr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-red"/></marker></defs>
+<rect class="bg" x="0" y="0" width="1060" height="1000"/>
+<rect class="lane-coord" x="20" y="84" width="240" height="836" rx="10"/>
+<rect class="head-coord" x="20" y="16" width="240" height="58" rx="10"/>
+<text class="txt title headtxt" x="140.0" y="41" text-anchor="middle">Coordinator</text>
+<text class="txt sub headsub" x="140.0" y="61" text-anchor="middle">main worktree · talks to you</text>
+<rect class="lane-dev" x="280" y="84" width="240" height="836" rx="10"/>
+<rect class="head-dev" x="280" y="16" width="240" height="58" rx="10"/>
+<text class="txt title headtxt" x="400.0" y="41" text-anchor="middle">Development agent</text>
+<text class="txt sub headsub" x="400.0" y="61" text-anchor="middle">its own worktree + workspace</text>
+<rect class="lane-gh" x="540" y="84" width="240" height="836" rx="10"/>
+<rect class="head-gh" x="540" y="16" width="240" height="58" rx="10"/>
+<text class="txt title headtxt" x="660.0" y="41" text-anchor="middle">GitHub &amp; main</text>
+<text class="txt sub headsub" x="660.0" y="61" text-anchor="middle">the queue and the base branch</text>
+<rect class="lane-pool" x="800" y="84" width="240" height="836" rx="10"/>
+<rect class="head-pool" x="800" y="16" width="240" height="58" rx="10"/>
+<text class="txt title headtxt" x="920.0" y="41" text-anchor="middle">Integrator pool</text>
+<text class="txt sub headsub" x="920.0" y="61" text-anchor="middle">one verify worktree each</text>
+<rect class="box box-coord" x="42.0" y="104" width="196" height="48" rx="8"/>
+<text class="txt" x="146.0" y="124" text-anchor="middle">Reads the resource board,</text>
+<text class="txt" x="146.0" y="140" text-anchor="middle">dispatches the task</text>
+<circle class="badge-coord" cx="44.0" cy="106" r="11"/>
+<text class="txt num" x="44.0" y="110" text-anchor="middle">1</text>
+<path class="arrow" d="M238.0,128.0 L302.0,128.0" marker-end="url(#ah)"/>
+<rect class="box box-dev" x="302.0" y="104" width="196" height="48" rx="8"/>
+<text class="txt" x="400.0" y="124" text-anchor="middle">Starts in its own worktree</text>
+<text class="txt" x="400.0" y="140" text-anchor="middle">and herdr workspace</text>
+<rect class="box box-dev" x="302.0" y="172" width="196" height="48" rx="8"/>
+<text class="txt" x="406.0" y="192" text-anchor="middle">Questions, RESOURCE</text>
+<text class="txt" x="406.0" y="208" text-anchor="middle">REQUEST to the coordinator</text>
+<circle class="badge-dev" cx="304.0" cy="174" r="11"/>
+<text class="txt num" x="304.0" y="178" text-anchor="middle">2</text>
+<path class="arrow msg" d="M302.0,189.0 L238.0,189.0" marker-end="url(#ah)"/>
+<path class="arrow msg" d="M238.0,203.0 L302.0,203.0" marker-end="url(#ah)"/>
+<rect class="box box-coord" x="42.0" y="172" width="196" height="48" rx="8"/>
+<text class="txt" x="140.0" y="192" text-anchor="middle">Answers: GO · WAIT ·</text>
+<text class="txt" x="140.0" y="208" text-anchor="middle">YIELD · SAVE MODE</text>
+<rect class="box box-dev" x="302.0" y="240" width="196" height="48" rx="8"/>
+<text class="txt" x="406.0" y="260" text-anchor="middle">Codes and commits;</text>
+<text class="txt" x="406.0" y="276" text-anchor="middle">checks run in a heavy slot</text>
+<circle class="badge-dev" cx="304.0" cy="242" r="11"/>
+<text class="txt num" x="304.0" y="246" text-anchor="middle">3</text>
+<rect class="box box-dev" x="302.0" y="308" width="196" height="48" rx="8"/>
+<text class="txt" x="406.0" y="328" text-anchor="middle">Opens the PR</text>
+<text class="txt" x="406.0" y="344" text-anchor="middle">(gh pr create)</text>
+<circle class="badge-dev" cx="304.0" cy="310" r="11"/>
+<text class="txt num" x="304.0" y="314" text-anchor="middle">4</text>
+<path class="arrow" d="M498.0,332.0 L562.0,332.0" marker-end="url(#ah)"/>
+<rect class="box box-gh" x="562.0" y="308" width="196" height="48" rx="8"/>
+<text class="txt" x="660.0" y="328" text-anchor="middle">Open PRs</text>
+<text class="txt" x="660.0" y="344" text-anchor="middle">= the queue</text>
+<rect class="box box-dev" x="302.0" y="376" width="196" height="48" rx="8"/>
+<text class="txt" x="406.0" y="396" text-anchor="middle">Announces</text>
+<text class="txt" x="406.0" y="412" text-anchor="middle">“PR #N ready”</text>
+<circle class="badge-dev" cx="304.0" cy="378" r="11"/>
+<text class="txt num" x="304.0" y="382" text-anchor="middle">5</text>
+<path class="arrow msg" d="M498.0,400.0 L822.0,400.0" marker-end="url(#ah)"/>
+<text class="txt lbl" x="660.0" y="393.0" text-anchor="middle">to one idle integrator</text>
+<rect class="box box-pool" x="822.0" y="376" width="196" height="48" rx="8"/>
+<text class="txt" x="920.0" y="396" text-anchor="middle">Wakes up</text>
+<text class="txt" x="920.0" y="412" text-anchor="middle">(the message only wakes it)</text>
+<path class="arrow" d="M728.0,356 C728.0,446 782.0,468 822.0,468" marker-end="url(#ah)"/>
+<text class="txt lbl" x="690.0" y="454" text-anchor="middle">pool-state.py queue</text>
+<rect class="box box-pool" x="822.0" y="444" width="196" height="48" rx="8"/>
+<text class="txt" x="926.0" y="464" text-anchor="middle">Claims the oldest PR</text>
+<text class="txt" x="926.0" y="480" text-anchor="middle">(only one integrator can)</text>
+<circle class="badge-pool" cx="824.0" cy="446" r="11"/>
+<text class="txt num" x="824.0" y="450" text-anchor="middle">6</text>
+<rect class="box box-pool" x="822.0" y="512" width="196" height="48" rx="8"/>
+<text class="txt" x="926.0" y="532" text-anchor="middle">Reviews, merges, verifies</text>
+<text class="txt" x="926.0" y="548" text-anchor="middle">in its worktree (heavy slot)</text>
+<circle class="badge-pool" cx="824.0" cy="514" r="11"/>
+<text class="txt num" x="824.0" y="518" text-anchor="middle">7</text>
+<path class="arrow msg red" d="M822.0,604.0 L498.0,604.0" marker-end="url(#ahr)"/>
+<text class="txt lbl redtxt" x="660.0" y="597.0" text-anchor="middle">red: bounce with the evidence</text>
+<rect class="box box-red" x="302.0" y="580" width="196" height="48" rx="8"/>
+<text class="txt redtxt" x="400.0" y="600" text-anchor="middle">Fixes the branch,</text>
+<text class="txt redtxt" x="400.0" y="616" text-anchor="middle">announces again</text>
+<rect class="box box-red" x="822.0" y="580" width="196" height="48" rx="8"/>
+<text class="txt redtxt" x="920.0" y="600" text-anchor="middle">Red: comments on the PR,</text>
+<text class="txt redtxt" x="920.0" y="616" text-anchor="middle">records the bounce</text>
+<rect class="box box-pool" x="822.0" y="648" width="196" height="48" rx="8"/>
+<text class="txt" x="926.0" y="668" text-anchor="middle">Green: pushes main</text>
+<text class="txt" x="926.0" y="684" text-anchor="middle">under the merge lock</text>
+<circle class="badge-pool" cx="824.0" cy="650" r="11"/>
+<text class="txt num" x="824.0" y="654" text-anchor="middle">8</text>
+<path class="arrow" d="M822.0,672.0 L758.0,672.0" marker-end="url(#ah)"/>
+<rect class="box box-gh" x="562.0" y="648" width="196" height="48" rx="8"/>
+<text class="txt" x="660.0" y="677" text-anchor="middle">main</text>
+<text class="txt lbl" x="660.0" y="711" text-anchor="middle">main moved? merge again, re-verify</text>
+<rect class="box box-pool" x="822.0" y="716" width="196" height="48" rx="8"/>
+<text class="txt" x="926.0" y="736" text-anchor="middle">Verdict straight</text>
+<text class="txt" x="926.0" y="752" text-anchor="middle">to the author</text>
+<circle class="badge-pool" cx="824.0" cy="718" r="11"/>
+<text class="txt num" x="824.0" y="722" text-anchor="middle">9</text>
+<path class="arrow msg" d="M822.0,740.0 L498.0,740.0" marker-end="url(#ah)"/>
+<text class="txt lbl" x="660.0" y="733.0" text-anchor="middle">merged as &lt;sha&gt;</text>
+<rect class="box box-dev" x="302.0" y="716" width="196" height="48" rx="8"/>
+<text class="txt" x="400.0" y="736" text-anchor="middle">Reports to you, clears</text>
+<text class="txt" x="400.0" y="752" text-anchor="middle">its note, stops</text>
+<rect class="box box-pool" x="822.0" y="784" width="196" height="48" rx="8"/>
+<text class="txt" x="926.0" y="804" text-anchor="middle">Merge report</text>
+<text class="txt" x="926.0" y="820" text-anchor="middle">to the coordinator</text>
+<circle class="badge-pool" cx="824.0" cy="786" r="11"/>
+<text class="txt num" x="824.0" y="790" text-anchor="middle">10</text>
+<path class="arrow msg" d="M822.0,808.0 L238.0,808.0" marker-end="url(#ah)"/>
+<text class="txt lbl" x="400.0" y="801.0" text-anchor="middle">plan tasks done</text>
+<rect class="box box-coord" x="42.0" y="784" width="196" height="48" rx="8"/>
+<text class="txt" x="140.0" y="804" text-anchor="middle">Ticks docs/phases/</text>
+<text class="txt" x="140.0" y="820" text-anchor="middle">(push under the lock)</text>
+<rect class="box box-coord" x="42.0" y="852" width="196" height="48" rx="8"/>
+<text class="txt" x="146.0" y="872" text-anchor="middle">Cleans up once idle:</text>
+<text class="txt" x="146.0" y="888" text-anchor="middle">workspace, worktree, branch</text>
+<circle class="badge-coord" cx="44.0" cy="854" r="11"/>
+<text class="txt num" x="44.0" y="858" text-anchor="middle">11</text>
+<path class="arrow" d="M238.0,876.0 L302.0,876.0" marker-end="url(#ah)"/>
+<rect class="box-gone" x="302.0" y="852" width="196" height="48" rx="8"/>
+<text class="txt sub" x="400.0" y="881" text-anchor="middle">Worktree discarded</text>
+<path class="arrow" d="M40,952 L90,952" marker-end="url(#ah)"/>
+<text class="txt sub" x="100" y="956">action</text>
+<path class="arrow msg" d="M170,952 L220,952" marker-end="url(#ah)"/>
+<text class="txt sub" x="230" y="956">herdr message (data, never approval)</text>
+<path class="arrow msg red" d="M480,952 L530,952" marker-end="url(#ahr)"/>
+<text class="txt sub" x="540" y="956">bounce</text>
+<text class="txt sub" x="40" y="982">Hard floor: at most K heavy checks run at once on the machine; everything else is negotiated with the coordinator. Single mode: one integrator plays the coordinator too.</text>
+</svg>
