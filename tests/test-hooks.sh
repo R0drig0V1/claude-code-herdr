@@ -28,6 +28,8 @@ case "$root/" in
 esac
 rm -rf "$work" && mkdir -p "$work"
 trap 'rm -rf "$work"' EXIT
+# The test repositories live inside this checkout: git must never walk up into it.
+export GIT_CEILING_DIRECTORIES="$work"
 fails=0
 
 new_repo() {  # new_repo <dir> <enable: yes|no|false|local-false>
@@ -204,12 +206,13 @@ fi
 target="$work/target"
 new_repo "$target" no
 (cd "$target" && bash "$root/install.sh" >/dev/null) || { echo "FAIL  install: exit $?"; fails=$((fails + 1)); }
-for f in CLAUDE.md scripts/check.sh scripts/integrator.sh .claude/prompts/integrator.md .claude/settings.json \
-         .claude/multi-agent-herdr.json; do
+for f in CLAUDE.md scripts/check.sh scripts/integrator.sh scripts/coordinator.sh .claude/prompts/integrator.md \
+         .claude/prompts/coordinator.md .claude/settings.json .claude/multi-agent-herdr.json; do
     if [[ -f "$target/$f" ]]; then echo "ok    install: $f"
     else echo "FAIL  install: missing $f"; fails=$((fails + 1)); fi
 done
-[[ -x "$target/scripts/check.sh" ]] || { echo "FAIL  install: check.sh not executable"; fails=$((fails + 1)); }
+[[ -x "$target/scripts/check.sh" && -x "$target/scripts/coordinator.sh" ]] \
+    || { echo "FAIL  install: check.sh or coordinator.sh not executable"; fails=$((fails + 1)); }
 echo "local edit" >> "$target/CLAUDE.md"
 second=$(cd "$target" && bash "$root/install.sh")
 if grep -q '= CLAUDE.md (exists' <<<"$second" && tail -1 "$target/CLAUDE.md" | grep -q 'local edit'; then

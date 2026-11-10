@@ -8,7 +8,13 @@ names are unique per server, not per repository, so a name alone could reach ano
 repository's integrator). It only reads state: `git worktree list --porcelain` and
 `herdr agent list`; it never sends input to any pane.
 
-Usage: agents-in-repo.py [--branch BRANCH] [--name NAME] [--main-worktree] [--exclude NAME ...]
+Usage: agents-in-repo.py [--branch BRANCH] [--name NAME] [--main-worktree | --detached |
+                         --dev-only] [--exclude NAME ...]
+
+`--main-worktree` keeps the agents in the main worktree (the integrator, or in pool mode the
+coordinator); `--detached` those in a linked worktree with a detached HEAD (pool integrators'
+verify worktrees, docs/multi-integrator.md); `--dev-only` those in a linked worktree on a
+branch, i.e. the development agents (integrator-pool.sh counts them to scale the pool).
 
 Prints one tab-separated line per matching agent:
 
@@ -68,6 +74,17 @@ def owner(cwd: str, trees: list[tuple[str, str]]) -> tuple[str, str] | None:
     return best
 
 
+def wanted(args: argparse.Namespace, match: tuple[str, str], main_tree: str) -> bool:
+    """Whether the worktree `match` (path, branch) passes the worktree filters."""
+    in_main = match[0] == main_tree
+    detached = not in_main and match[1] == "(detached)"
+    if args.main_worktree and not in_main:
+        return False
+    if args.detached and not detached:
+        return False
+    return not (args.dev_only and (in_main or detached))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--branch", help="only the agent(s) in this branch's worktree")
@@ -76,6 +93,16 @@ def main() -> int:
         "--main-worktree",
         action="store_true",
         help="only agents in the main worktree (the integrator's checkout)",
+    )
+    parser.add_argument(
+        "--detached",
+        action="store_true",
+        help="only agents in a detached linked worktree (pool integrators' verify worktrees)",
+    )
+    parser.add_argument(
+        "--dev-only",
+        action="store_true",
+        help="only agents in a linked worktree on a branch (development agents)",
     )
     parser.add_argument("--exclude", action="append", default=[], help="skip this agent name")
     args = parser.parse_args()
@@ -107,7 +134,7 @@ def main() -> int:
                     break
         if not match or (args.branch and match[1] != args.branch):
             continue
-        if args.main_worktree and match[0] != trees[0][0]:
+        if not wanted(args, match, trees[0][0]):
             continue
         print(
             "\t".join(

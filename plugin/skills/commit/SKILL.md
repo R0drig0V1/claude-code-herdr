@@ -32,8 +32,16 @@ Run from the workspace root and fix or report failures. Do not commit red checks
 user explicitly says so.
 
 ```bash
-scripts/check.sh
+"${CLAUDE_PLUGIN_ROOT}/scripts/resource-budget.py" run --label "check $(git branch --show-current)" -- scripts/check.sh; echo "exit=$?"
 ```
+
+The checks run inside one of the machine's heavy slots (`resource-budget.py run`): every
+agent on this computer shares a small number of them, so a full test suite may first wait
+("waiting for one of N heavy slot(s)"); let it wait, and never run the suite outside the
+wrapper or several suites at once. `resource-board.sh show` shows who holds each slot. A
+long wait that blocks something urgent (a bounce to fix) is a
+`RESOURCE REQUEST` to the coordinator in pool mode (or a note to the user in single mode),
+not a reason to bypass the wrapper.
 
 `scripts/check.sh` holds the project's lint, type and test commands. If it does not exist or
 still prints the "no checks configured" warning, tell the user once.

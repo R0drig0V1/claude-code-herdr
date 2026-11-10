@@ -1,7 +1,7 @@
 {
   "name": "multi-agent-herdr",
-  "version": "0.1.0",
-  "description": "Run several Claude Code agents in parallel on one repository inside herdr: one integrator agent owns main and merges verified pull requests, every development agent runs in its own git worktree and its own herdr workspace, and announcements and verdicts travel by herdr agent name. Replaces the multi-agent plugin: commit/pr/document/improve-plan/integrate/dispatch/setup skills, plan-adversary and code-reviewer agents, guard hooks and notifications.",
+  "version": "0.2.0",
+  "description": "Run several Claude Code agents in parallel on one repository inside herdr: one integrator agent (or, in pool mode, a coordinator plus N parallel integrators) merges verified pull requests, every development agent runs in its own git worktree and its own herdr workspace, and announcements and verdicts travel by herdr agent name. Replaces the multi-agent plugin: commit/pr/document/improve-plan/integrate/coordinate/dispatch/setup skills, a machine-wide resource budget, plan-adversary and code-reviewer agents, guard hooks and notifications.",
   "author": {
     "name": "Rodrigo Vidal",
     "url": "https://github.com/R0drig0V1"
@@ -9,5 +9,15 @@
   "homepage": "https://github.com/R0drig0V1/claude-code-herdr#readme",
   "repository": "https://github.com/R0drig0V1/claude-code-herdr",
   "license": "MIT",
-  "keywords": ["multi-agent", "herdr", "git-worktree", "integrator", "pull-requests", "code-review", "workflow", "hooks"]
+  "keywords": [
+    "multi-agent",
+    "herdr",
+    "git-worktree",
+    "integrator",
+    "pull-requests",
+    "code-review",
+    "workflow",
+    "hooks",
+    "merge-queue"
+  ]
 }

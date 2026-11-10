@@ -8,7 +8,51 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-09
+
 ### Added
+- **Pool mode** (opt-in, docs/multi-integrator.md): an `integrators` object in
+  `.claude/multi-agent-herdr.json` splits the single integrator into a **coordinator** (the
+  session the user talks to: dispatch, `docs/phases/`, scaling; it never merges) and N
+  **integrators** `<integrator_name>-<n>` that claim, verify and merge PRs in parallel, each in
+  its own verify worktree detached at `origin/<base>`. Announcements go straight to the pool,
+  verdicts straight from the integrator to the author, questions to the coordinator.
+- `scripts/integrate-pr.sh`: one PR merged step by step, each step gated on the previous exit
+  code: merge, `verify-merge.sh`, commit, push under the merge lock. When `<base>` moved during
+  the verification it re-merges, pushes at once if only `reverify_exempt_paths` changed (the
+  plan), and otherwise re-verifies, up to `max_reverify` times. A conflict stops it unless it
+  is index-table rows (`--union-rows`, `union-rows.py`). A failed verification aborts and
+  resets. The head branch is deleted only when the PR head, the remote head and the merged
+  head agree, with a lease on that commit; otherwise it is kept. Used in both modes.
+- `scripts/pool-state.py`: pool state in the git common dir. It holds atomic PR claims
+  (`mkdir`), stale-claim takeover (dead owner or expired heartbeat, moved aside with an atomic
+  `rename`), bounced heads (the queue skips a head until it changes), the merge lock (`lock
+  run`, a kernel `flock` with `--expect-base`) and plan reports for the coordinator.
+- `scripts/integrator-pool.sh`: `list`, `route` (the integrator the `pr` skill announces to,
+  in both modes), `scale` (the facts and a rule-of-thumb suggestion; the coordinator decides
+  after asking the members), `spawn <n>` (verify worktree, own workspace with
+  `CLAUDE_ROLE=integrator`, `herdr agent start`, kickoff) and `stop <n>` (only idle members
+  without claims, only workspaces it opened).
+- **Resources, negotiated with one hard floor**, after an out-of-memory crash with about 20
+  agents on a 24 GB machine:
+  - `scripts/resource-budget.py run`: at most `heavy_slots` heavy commands at once, across all
+    agents and projects (`verify-merge.sh`, `new-worktree.sh`, and the `commit` and `pr`
+    skills run the project's scripts through it);
+  - `scripts/resource-board.sh`: the shared, machine-wide resource sheet where agents note
+    what they run, and `show` prints memory, slot holders, notes and idle agents;
+  - a conversational protocol through the coordinator: `RESOURCE REQUEST` / `GO` / `WAIT` /
+    `YIELD` and `SAVE MODE ON/OFF`, with the coordinator's priorities.
+
+  Limits go in `~/.config/multi-agent-herdr/resources.json`, with defaults from the RAM. Only
+  `heavy_slots` is enforced; `sessions_guideline` and `low_memory_gb` are guidelines.
+- Skill `coordinate`; template `scripts/coordinator.sh` and `.claude/prompts/coordinator.md`.
+- `project-config.py`: keys `coordinator_name` and `integrators`, derived `mode` and
+  `integrator_pool`, dotted keys (`integrators.max`).
+- `verify-merge.sh --here` (verify the current worktree); `agents-in-repo.py --detached` and
+  `--dev-only`.
+- `tests/test-pool.sh` (also in CI); docs/multi-integrator.md (design, failure modes, open
+  questions) and docs/migration-multi-integrator.md (switching a project, granolax as the
+  example).
 - SessionStart hook `session-start-integrator.sh`: an integrator session (`CLAUDE_ROLE=integrator`,
   inside herdr, in the main worktree of a repository that enables the plugin) takes its herdr
   name with `scripts/claim-integrator.sh` as it starts, relaunches and resumed sessions
@@ -23,6 +67,20 @@ All notable changes to this project are documented here. The format follows
   `template/scripts/integrator.sh` and `claim-integrator.sh` document the hook.
 
 ### Changed
+- `integrate` merges with `integrate-pr.sh` in both modes and rebuilds the queue with
+  `pool-state.py queue`. It records bounces, so a bounced head is not verified again. In pool
+  mode it claims first, never touches the main worktree or `docs/phases/`, and reports merges
+  to the coordinator.
+- `dispatch` belongs to the coordinator in pool mode, reads the resource board first, and its
+  brief routes questions and resource requests to the dispatcher. `pr` announces through `integrator-pool.sh route`.
+- Guards: in pool mode the coordinator owns the main worktree. Integrators are held to the
+  main-worktree rules. Both push a protected branch only through `pool-state.py lock run --`.
+  `gh pr merge` stays blocked for both. Development agents may prompt the coordinator and the
+  pool members. Single mode is unchanged.
+- `claim-integrator.sh` and the SessionStart hooks handle the coordinator and pool members.
+  `template/scripts/integrator.sh` refuses to launch in pool mode.
+- `guard-main-bash.py`: `check_segment` split into `check_git`, `check_push`, `check_locked`
+  and `check_writers` (it stays under the lizard ceilings).
 - `integrator_name` defaults to `integrator-<repository>` (the main worktree's directory name,
   lower case, runs outside `[a-z0-9_-]` replaced by `-`, cut to 32 characters) instead of
   `integrator`. herdr agent names are unique per server, so with the old default a second
@@ -32,6 +90,8 @@ All notable changes to this project are documented here. The format follows
   the key. Existing projects with `"integrator_name": "integrator"` keep it;
   `/multi-agent-herdr:setup` offers to remove it, and `claim-integrator.sh` explains the fix
   when the name is taken.
+
+## [0.1.0]
 
 ### Added
 - `multi-agent-herdr` Claude Code plugin, published through the `claude-code-herdr`

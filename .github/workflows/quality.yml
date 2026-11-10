@@ -42,11 +42,11 @@ jobs:
       - name: ruff format --check
         run: uv run --no-sync ruff format --check .
 
-      # Ceilings = today's maxima (all from check_segment in plugin/hooks/guard-main-bash.py):
-      # cyclomatic complexity 78, 91 NLOC, 109 lines, 4 parameters. ruff holds new functions
+      # Ceilings = today's maxima (all from check_segment in plugin/hooks/guard-main-bash.py,
+      # measured 2026-11-09): cyclomatic complexity 47, 59 NLOC, 76 lines, 4 parameters. ruff holds new functions
       # to complexity 15; this keeps the exempted ones from growing.
       - name: lizard complexity ceilings
-        run: uv run --no-sync lizard --languages python --exclude './.venv/*' -C 78 -T nloc=91 -L 109 -a 4 --warnings_only .
+        run: uv run --no-sync lizard --languages python --exclude './.venv/*' -C 47 -T nloc=59 -L 76 -a 4 --warnings_only .
 
   workflows:
     name: Workflows (zizmor, actionlint)

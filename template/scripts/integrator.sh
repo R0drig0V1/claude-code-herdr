@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Launch the integrator session: the only session that may change the base branch and the main
-# worktree (see "Multi-agent workflow" in CLAUDE.md).
+# worktree (see "Multi-agent workflow" in CLAUDE.md). Single-integrator mode only: in pool mode
+# (an "integrators" object in .claude/multi-agent-herdr.json) the main worktree belongs to the
+# coordinator (scripts/coordinator.sh), which spawns the integrators in their own verify
+# worktrees with the plugin's integrator-pool.sh; this script then refuses to launch.
 #
 # Usage: scripts/integrator.sh [extra claude arguments]
 #        scripts/integrator.sh --print-name   (print the integrator's herdr name and exit)
@@ -46,6 +49,11 @@ fi
 if [[ "${1:-}" == --print-name ]]; then  # used by the plugin's tests; launches nothing
     echo "$name"
     exit 0
+fi
+if [[ -f .claude/multi-agent-herdr.json && "$(jq -r '.integrators | type' .claude/multi-agent-herdr.json)" == object ]]; then
+    echo "pool mode: launch scripts/coordinator.sh; it spawns the integrators" \
+        "(/multi-agent-herdr:coordinate, integrator-pool.sh)" >&2
+    exit 1
 fi
 CLAUDE_ROLE=integrator exec claude --name "$name" \
     --append-system-prompt-file "$repo_root/.claude/prompts/integrator.md" "$@"

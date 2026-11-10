@@ -16,7 +16,8 @@
 # - Runs scripts/worktree-setup.sh inside the new worktree when the project has one: the
 #   place for per-worktree setup such as `uv sync`, `pnpm install` or creating a private test
 #   database (worktrees must never share one: tests usually wipe it). It receives the branch
-#   name as $1. A failing setup only warns, so the worktree is still usable.
+#   name as $1. A failing setup only warns, so the worktree is still usable. It runs inside
+#   one of the machine's heavy slots (resource-budget.py run): installs are heavy too.
 set -euo pipefail
 
 branch="${1:?usage: new-worktree.sh <type>/<short-kebab-name>}"
@@ -38,7 +39,8 @@ git -C "$repo_root" worktree add --no-track -b "$branch" "$worktree" "$base"
 [[ -f "$repo_root/.env" ]] && cp "$repo_root/.env" "$worktree/.env"
 
 if [[ -x "$worktree/scripts/worktree-setup.sh" ]]; then
-    (cd "$worktree" && scripts/worktree-setup.sh "$branch") \
+    (cd "$worktree" && "$(dirname "$0")/resource-budget.py" run --label "worktree-setup $branch" \
+        -- scripts/worktree-setup.sh "$branch") \
         || echo "warning: scripts/worktree-setup.sh failed; rerun it in $worktree" >&2
 fi
 

@@ -15,7 +15,9 @@
 # just skips the instructions.
 set -uo pipefail
 
-[[ "${CLAUDE_ROLE:-}" == "integrator" ]] && exit 0
+# The integrator (single mode) and the coordinator (pool mode) own the main worktree;
+# guard-main-worktree.sh checks the role against the mode.
+[[ "${CLAUDE_ROLE:-}" == "integrator" || "${CLAUDE_ROLE:-}" == "coordinator" ]] && exit 0
 
 cwd=$(jq -r '.cwd // empty' 2>/dev/null)
 [[ -z "$cwd" || ! -d "$cwd" ]] && exit 0
@@ -33,12 +35,13 @@ source "$(dirname "$0")/plugin-enabled.sh"
 plugin_enabled "$repo_root" || exit 0
 
 read -r -d '' context <<MSG
-This session started in the MAIN worktree ($repo_root), which only the integrator may modify
-(CLAUDE.md, "Multi-agent workflow"). Questions and reading code are fine here.
+This session started in the MAIN worktree ($repo_root), which only the integrator (in pool
+mode: the coordinator) may modify (CLAUDE.md, "Multi-agent workflow"). Questions and reading
+code are fine here.
 
 Do not change files, commit, switch branches or push from here: hooks block it. When the
 user's request needs changes, tell them in one line that development agents are started by
-the integrator agent with /multi-agent-herdr:dispatch <type>/<short-kebab-name> <task>, which
+the integrator (in pool mode: the coordinator) agent with /multi-agent-herdr:dispatch <type>/<short-kebab-name> <task>, which
 creates the worktree and opens a new agent in its own herdr workspace, and suggest the branch
 name (type: feat, fix, docs, chore, refactor, test). Do not create a worktree or call
 EnterWorktree yourself.

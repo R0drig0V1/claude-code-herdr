@@ -44,10 +44,13 @@ jobs:
         run: shellcheck -S warning install.sh tests/*.sh plugin/hooks/*.sh plugin/scripts/*.sh template/scripts/*.sh
 
       - name: Python compiles
-        run: python3 -m py_compile plugin/hooks/guard-main-bash.py plugin/scripts/agents-in-repo.py plugin/scripts/project-config.py
+        run: python3 -m py_compile plugin/hooks/guard-main-bash.py plugin/scripts/*.py
 
       - name: Hook and installer smoke tests
         run: |
           git config --global user.email ci@example.com
           git config --global user.name ci
           tests/test-hooks.sh
+
+      - name: Pool mode smoke tests
+        run: tests/test-pool.sh

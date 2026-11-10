@@ -21,6 +21,13 @@ ported and made herdr native); do not enable both in one project.
   `integrate` sends the verdict to the agent whose pane is in the branch's worktree.
 - **Hooks enforce it.** Edits, commits, dependency installs and pushes to `main` from a
   non-integrator session are blocked before they run.
+- **Scales out when one integrator is the bottleneck (pool mode, opt-in).** A coordinator
+  talks to the user, dispatches and owns the plan; N integrators claim PRs and verify them in
+  parallel, each in its own verify worktree, and merge under a short merge lock. See
+  [docs/multi-integrator.md](docs/multi-integrator.md).
+- **Resources are negotiated, with one hard floor.** Agents note what they run on a shared
+  resource board (`resource-board.sh show`, the live sheet) and ask the coordinator for a turn;
+  underneath, at most `heavy_slots` heavy checks run at once on the machine.
 
 ```text
 integrator: /multi-agent-herdr:dispatch docs/readme-typo "Fix the typo in README"
@@ -88,15 +95,44 @@ per-repository default applies):
 | `integrator_name` | `integrator-<repo>`: the main worktree's directory name in lower case, runs outside `[a-z0-9_-]` replaced by `-`, cut to herdr's 32 characters (`Astro-SimCLR` -> `integrator-astro-simclr`) | the herdr name `claim-integrator.sh` takes, `pr` announces to, the Bash guard lets agents prompt, and `scripts/integrator.sh` names the session |
 | `protected_branches` | `[]` | extra `fnmatch` patterns only the integrator may push; `main` and `base_branch` are always protected |
 | `worktree_prefix` | `<repo>-` | development worktrees are `../<worktree_prefix><name>` |
+| `coordinator_name` | `coordinator-<repo>` (same rule) | pool mode: the coordinator's herdr name (`scripts/coordinator.sh`) |
+| `integrators` | absent (single mode) | an object turns on **pool mode**: `min` (1), `max` (3, at most 16), `scale_up_when_active_agents_gt` (5), `scale_down_idle_minutes` (30), `claim_ttl_minutes` (60), `max_reverify` (3), `reverify_exempt_paths` (`["docs/phases/*"]`); members are `<integrator_name>-<n>` ([docs/multi-integrator.md](docs/multi-integrator.md)) |
 
 `plugin/scripts/project-config.py` is the only reader: it prints one key
-(`project-config.py base_branch`) or all of them as JSON, and rejects unknown keys and invalid
+(`project-config.py base_branch`, `project-config.py integrators.max`) or all of them as JSON
+(with the derived `mode` and `integrator_pool`), and rejects unknown keys and invalid
 values (keys starting with `$`, such as `$comment`, are ignored). Scripts and skills stop on an
 invalid file; the Bash guard falls back to the defaults, so `main` stays protected.
 
 With a `base_branch` other than `main`, the plugin never moves `main`: `integrate` follows
 the promotion procedure the project documents in `CLAUDE.md` or
 `.claude/prompts/integrator.md`, and pushes nothing to `main` when there is none.
+
+### Resources (per machine)
+
+Limits shared by every agent of every project on the computer, in
+`~/.config/multi-agent-herdr/resources.json` (optional; defaults from the RAM, e.g. 24 GB ->
+2 heavy slots, a guideline of 12 sessions):
+
+```json
+{"heavy_slots": 2, "sessions_guideline": 12, "low_memory_gb": 2.4}
+```
+
+Only `heavy_slots` is enforced: `verify-merge.sh`, `new-worktree.sh` and the `commit`/`pr`
+skills run the project's heavy scripts through `resource-budget.py run`, at most that many at
+once. Everything else is negotiated: agents note what they run on the resource board
+(`resource-board.sh note|clear|show|prune`), send `RESOURCE REQUEST`s to the coordinator,
+which answers `GO`, `WAIT` or `YIELD` and declares save mode when memory is low
+([docs/multi-integrator.md](docs/multi-integrator.md), "Resources").
+
+### Pool mode
+
+Add an `integrators` object to `.claude/multi-agent-herdr.json`, launch
+`scripts/coordinator.sh` in the main worktree instead of `scripts/integrator.sh`, and run
+`/multi-agent-herdr:coordinate`: it spawns the integrators (`integrator-pool.sh`), each in
+its own herdr workspace and verify worktree. Roles, message flows, the claim and lock
+protocols, failure modes and the scaling policy: [docs/multi-integrator.md](docs/multi-integrator.md).
+Switching an existing project: [docs/migration-multi-integrator.md](docs/migration-multi-integrator.md).
 
 ### Migrating a project from multi-agent
 
@@ -117,6 +153,8 @@ the promotion procedure the project documents in `CLAUDE.md` or
 | Who | How |
 |-----|-----|
 | Integrator | `scripts/integrator.sh` in a herdr pane of the main checkout, then `/multi-agent-herdr:integrate`; start agents with `/multi-agent-herdr:dispatch <type>/<name> <task>` |
+| Coordinator (pool mode) | `scripts/coordinator.sh` in a herdr pane of the main checkout, then `/multi-agent-herdr:coordinate`; dispatch with `/multi-agent-herdr:dispatch` |
+| Pool integrator | Spawned by the coordinator (`integrator-pool.sh spawn <n>`): `/multi-agent-herdr:integrate` in its own verify worktree |
 | Development agent | Started by `dispatch` inside its worktree: work, `/multi-agent-herdr:commit`, `/multi-agent-herdr:pr` |
 | Before a phase | `/multi-agent-herdr:improve-plan` (red-team review of `docs/phases/`) |
 
@@ -146,22 +184,30 @@ their settings and keep it; `/multi-agent-herdr:setup` offers to remove the key.
 | Skill | `dispatch` | Integrator only: `new-worktree.sh`, then `herdr worktree open` (fallback `workspace create`) as its own workspace, `herdr agent start <name> --kind claude`, and the brief |
 | Skill | `commit` | Conventional Commits in English, runs `scripts/check.sh` first, never stages secrets |
 | Skill | `pr` | Rebases, checks, opens the PR with a structured body, announces it to the project's integrator herdr agent (`integrator_name`) |
-| Skill | `integrate` | Integrator loop: queue -> merge `--no-commit` -> `verify-merge.sh` -> merge or bounce -> plan -> verdict to the author's herdr agent, "main moved" to the others |
+| Skill | `integrate` | Integrator loop (both modes): queue (`pool-state.py queue`) -> claim (pool) -> review -> `integrate-pr.sh` -> plan (single) or merge report to the coordinator (pool) -> verdict to the author's herdr agent, "main moved" to the others |
+| Skill | `coordinate` | Pool mode, coordinator only: arbitrate resources (board, requests, save mode), scale the pool by asking its members, tick the plan from merge reports and push it under the merge lock, answer development agents, escalate blocked ones |
 | Skill | `document` | Brings docstrings, `docs/`, ADRs and `CLAUDE.md` up to date |
 | Skill | `improve-plan` | Up to 3 adversarial rounds against `docs/phases/` with `plan-adversary` |
 | Skill | `setup` | User only: checks and, with confirmation, installs herdr, its Claude integration and the project files; flags the old plugin |
 | Agent | `plan-adversary`, `code-reviewer` | Read-only plan red team; read-only bug and security reviewer |
 | Hook | `guard-main-worktree.sh`, `guard-main-bash.py` | Block Edit/Write, shell writes, mutating git, dependency changes and formatters in the main worktree, plus `gh pr merge`, pushes to `main`, and herdr commands that type into another pane (see Rules) |
 | Hook | `session-start-worktree.sh` | Tells sessions in the main worktree to route changes through the integrator's `dispatch` |
-| Hook | `session-start-integrator.sh` | Gives the integrator session its herdr name (`claim-integrator.sh`) as it starts, relaunches and resumes included |
+| Hook | `session-start-integrator.sh` | Gives the integrator (pool mode: the coordinator, and each pool member in its verify worktree) its herdr name (`claim-integrator.sh`) as it starts, relaunches and resumes included |
 | Hook | `notify.sh` | Sound and terminal bell on Stop / Notification |
 | Script | `new-worktree.sh`, `verify-merge.sh` | Worktree creation; verification gate whose exit code is the verdict |
 | Script | `agents-in-repo.py` | Read-only: live herdr agents whose pane cwd is in a worktree of this repository (`--branch`, `--name`, `--main-worktree`) |
 | Script | `claim-integrator.sh` | Gives the integrator session its herdr name (`integrator_name`), or refuses when another agent holds it; run by the SessionStart hook, and by `dispatch` and `integrate` as a fallback |
 | Script | `project-config.py` | Reads and validates `.claude/multi-agent-herdr.json` (see Configuration) |
+| Script | `integrate-pr.sh` | One PR, gated step by step: merge, `verify-merge.sh`, commit, push under the merge lock (re-verify when the base moved), branch deletion only when nothing moved; exit code = outcome |
+| Script | `pool-state.py` | Pool state in the git common dir: atomic PR claims, bounced heads, the merge lock (`lock run`), plan reports |
+| Script | `integrator-pool.sh` | `list`, `route` (who `pr` announces to), `scale` (facts and a suggestion; the coordinator decides), `spawn <n>`, `stop <n>` |
+| Script | `resource-budget.py` | The hard floor: at most `heavy_slots` heavy commands at once on the machine (`run`), and the limits (`limits`) |
+| Script | `resource-board.sh` | The shared resource sheet: agents `note` and `clear` what they run; `show` prints memory, slots, notes and idle agents |
+| Script | `union-rows.py` | The one conflict integrators resolve: rows added to the same index table (refuses duplicate keys) |
 
 Project-owned files from `template/`: `CLAUDE.md`, `scripts/check.sh` (your definition of
-green), `scripts/integrator.sh`, `.claude/prompts/integrator.md`, `.claude/settings.json`,
+green), `scripts/integrator.sh`, `scripts/coordinator.sh`, `.claude/prompts/integrator.md`,
+`.claude/prompts/coordinator.md`, `.claude/settings.json`,
 `.claude/multi-agent-herdr.json` and the `docs/{phases,decisions,plan-reviews}/` indexes.
 
 ## Rules
@@ -216,14 +262,22 @@ or attaches the TUI.
   `integrator-<repo>` default gives that unless two repository names normalise alike.
 - `install.sh --force` overwrites project files you already filled in, without a backup: run
   `--dry-run` first.
-- `tests/test-hooks.sh` builds its repositories under `.test-work/` (or `~/.cache` when the
-  checkout is in a temporary directory, where the Bash guard allows writes on purpose).
+- `tests/test-hooks.sh` and `tests/test-pool.sh` build their repositories under `.test-work/`
+  and `.test-work-pool/run.*` (or `~/.cache` when the checkout is in a temporary directory,
+  where the Bash guard allows writes on purpose). `GIT_CEILING_DIRECTORIES` keeps git from
+  walking up from a scratch repository into this checkout.
 - `verify-merge.sh` is only as strong as your `scripts/check.sh`.
+- Pool mode assumes every integrator runs on the same machine (claims and the merge lock live
+  in the git common dir), and needs a parallel-safe `scripts/check.sh`.
+- The heavy-slot floor only applies to the plugin's own entry points; an agent that runs a
+  test suite by hand outside `resource-budget.py run` is not counted, and the board is only
+  as accurate as the notes agents write.
 
 ## Development
 
 ```bash
 tests/test-hooks.sh                 # hook, installer and agents-in-repo.py smoke tests
+tests/test-pool.sh                  # pool mode: config, guards, claims, lock, integrate-pr.sh, pool, resource budget
 tests/check-skill-substitutions.py  # skills: no $0, $1, ... or $ARGUMENTS in shell code (also run by test-hooks.sh)
 claude plugin validate plugin && claude plugin validate .
 uv run ruff check . && uv run ruff format --check .   # Python lint + format (pinned in uv.lock)

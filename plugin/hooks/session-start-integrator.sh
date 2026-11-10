@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# SessionStart hook: give the integrator session its herdr agent name from the start.
+# SessionStart hook: give the integrator (or coordinator) session its herdr agent name from the start.
 #
 # Part of the multi-agent-herdr plugin. Development agents announce their PRs to the herdr
-# agent named after `integrator_name` (scripts/claim-integrator.sh). scripts/integrator.sh
-# cannot rename that agent itself: before `exec claude` there is no herdr agent yet. This hook
+# agent named after `integrator_name` (scripts/claim-integrator.sh); in pool mode
+# (docs/multi-integrator.md) they announce to the pool members and ask the coordinator.
+# The launch scripts cannot rename that agent themselves: before `exec claude` there is no herdr agent yet. This hook
 # runs inside the new session, on every SessionStart (startup, resume, clear, compact), so a
 # relaunched or resumed integrator holds its name without waiting for /multi-agent-herdr:integrate
 # or dispatch (which still claim it, as a fallback).
@@ -16,13 +17,18 @@
 # own fixed cost is kept small (one jq, one git, the plugin_enabled check): the worker, not the
 # hook, looks up integrator_name (project-config.py, a Python start-up) for the messages.
 #
-# Only for CLAUDE_ROLE=integrator inside herdr (HERDR_ENV=1), in the main worktree of a
-# repository that enables the plugin; any other session gets nothing. Outcome, as
+# Only inside herdr (HERDR_ENV=1), in a repository that enables the plugin, for
+# CLAUDE_ROLE=integrator or coordinator in the main worktree, or CLAUDE_ROLE=integrator with
+# MULTI_AGENT_HERDR_NAME set (a pool member, set by integrator-pool.sh) in a linked worktree;
+# claim-integrator.sh then checks the role against the mode. Any other session gets nothing. Outcome, as
 # additionalContext: exit 0 one line naming the session's herdr agent; exit 3 another live
 # agent holds the name (ask the user); anything else a short warning. The hook always exits 0.
 set -uo pipefail
 
-[[ "${CLAUDE_ROLE:-}" == integrator && "${HERDR_ENV:-}" == 1 ]] || exit 0
+role="${CLAUDE_ROLE:-}"
+[[ ( "$role" == integrator || "$role" == coordinator ) && "${HERDR_ENV:-}" == 1 ]] || exit 0
+member="${MULTI_AGENT_HERDR_NAME:-}"
+[[ "$role" == integrator ]] || member=""
 
 agent_id="" cwd=""
 { IFS= read -r agent_id; IFS= read -r cwd; } < <(jq -r '(.agent_id // ""), (.cwd // "")' 2>/dev/null)
@@ -32,7 +38,10 @@ agent_id="" cwd=""
 git_dir="" common_dir=""
 { IFS= read -r git_dir; IFS= read -r common_dir; } < <(git -C "$cwd" rev-parse --absolute-git-dir \
     --path-format=absolute --git-common-dir 2>/dev/null)
-[[ -n "$git_dir" && "$git_dir" == "$common_dir" ]] || exit 0   # a linked worktree is not the integrator's
+[[ -n "$git_dir" ]] || exit 0
+# The main worktree belongs to the integrator (single mode) or the coordinator (pool mode); a
+# linked worktree only to a pool member (its verify worktree).
+if [[ "$git_dir" == "$common_dir" ]]; then member=""; else [[ -n "$member" ]] || exit 0; fi
 repo_root=$(dirname "$common_dir")
 
 # shellcheck source=plugin-enabled.sh
@@ -59,8 +68,13 @@ status_dir=$(mktemp -d "${TMPDIR:-/tmp}/multi-agent-herdr-claim.XXXXXX") \
     for attempt in $(seq 1 31); do
         out=$("$claim" 2>&1); rc=$?
         if [[ $attempt == 1 ]]; then
-            name=$("$plugin_root/scripts/project-config.py" --root "$repo_root" integrator_name \
-                2>/dev/null) || name="(integrator_name)"
+            key=integrator_name
+            [[ "$role" == coordinator ]] && key=coordinator_name
+            if [[ -n "$member" ]]; then name=$member
+            else
+                name=$("$plugin_root/scripts/project-config.py" --root "$repo_root" "$key" \
+                    2>/dev/null) || name="($key)"
+            fi
             printf '%s\n%s\n%s\n' "$rc" "$name" "$out" > "$status_dir/first.tmp" 2>/dev/null \
                 && mv -f "$status_dir/first.tmp" "$status_dir/first" 2>/dev/null
         fi
@@ -81,10 +95,12 @@ fi
 { IFS= read -r rc; IFS= read -r name; out=$(cat); } < "$status_dir/first"
 rm -rf "$status_dir"
 
-case "$rc" in
-    0) say "You are the herdr agent $name (the integrator): development agents announce their PRs to this name." ;;
-    3) say "multi-agent-herdr: another live herdr agent already holds the integrator name $name, so development agents' PR announcements go to it, not to you. claim-integrator.sh: $out
-Do not integrate or dispatch until the user decides: ask the user whether to stop that agent or give this project its own integrator_name." ;;
-    2) say "multi-agent-herdr: herdr has not detected this session yet, so it does not hold the name $name; a background retry claims it for up to 60 s (claim-integrator.sh: $out). /multi-agent-herdr:integrate and dispatch claim it again." ;;
+case "$rc/$role/${member:+pool}" in
+    0/integrator/) say "You are the herdr agent $name (the integrator): development agents announce their PRs to this name." ;;
+    0/integrator/pool) say "You are the herdr agent $name, a member of the integrator pool working in its own verify worktree: claim, verify and merge PRs with /multi-agent-herdr:integrate; never touch the main worktree (the coordinator's)." ;;
+    0/coordinator/) say "You are the herdr agent $name (the coordinator): you talk to the user, dispatch agents, own docs/phases/ and scale the integrator pool with /multi-agent-herdr:coordinate; integrators merge, you never do." ;;
+    3/*) say "multi-agent-herdr: another live herdr agent already holds the $role name $name, so development agents' PR announcements go to it, not to you. claim-integrator.sh: $out
+Do not integrate or dispatch until the user decides: ask the user whether to stop that agent or give this project its own name in .claude/multi-agent-herdr.json." ;;
+    2/*) say "multi-agent-herdr: herdr has not detected this session yet, so it does not hold the name $name; a background retry claims it for up to 60 s (claim-integrator.sh: $out). /multi-agent-herdr:integrate and dispatch claim it again." ;;
     *) say "multi-agent-herdr warning: could not claim the herdr name $name (claim-integrator.sh exit $rc: $out). Development agents may not reach this session until /multi-agent-herdr:integrate or dispatch claims it." ;;
 esac

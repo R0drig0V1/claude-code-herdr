@@ -5,7 +5,13 @@ Part of the multi-agent-herdr plugin (ported from multi-agent 0.1.0; only the pl
 and the block message differ).
 
 Only the integrator session (CLAUDE_ROLE=integrator) may change the main worktree or the
-protected branches (see "Multi-agent workflow" in CLAUDE.md). It only acts on repositories
+protected branches (see "Multi-agent workflow" in CLAUDE.md). In pool mode (an `integrators`
+object in `.claude/multi-agent-herdr.json`, docs/multi-integrator.md) the roles split: the
+coordinator (CLAUDE_ROLE=coordinator) owns the main worktree, the pool's integrators
+(CLAUDE_ROLE=integrator) work in their own verify worktrees, and both push a protected branch
+only through the merge lock, `pool-state.py lock run ... -- git push ...` (integrate-pr.sh
+uses it); a direct `git push` to it, `--all`/`--mirror` and `gh pr merge` stay blocked for
+them, and the main-worktree rules below apply to pool integrators. It only acts on repositories
 that enabled the plugin in `.claude/settings.json` or `.claude/settings.local.json`
 (`enabledPlugins` value `true`; `settings.local.json` wins when it sets the key). There, for
 every other session, it blocks:
@@ -16,7 +22,8 @@ every other session, it blocks:
 * from any worktree, herdr commands that type into another pane or take over another agent:
   `herdr agent send-keys|attach|rename`, `herdr pane run|send-keys|send-text`,
   `herdr terminal attach|session`, and `herdr agent prompt` to any target but the project's
-  integrator (`integrator_name`, default `integrator-<repository>`).
+  integrator (`integrator_name`, default `integrator-<repository>`), or in pool mode the
+  coordinator and the pool members (`coordinator_name`, `integrator_pool`).
   Without this, a development agent could run `git push origin main` in the integrator's pane
   or answer its approval dialog, outside any guarded Bash call.
 * in the main worktree: git commands that change the checkout or its history (commit, merge,
@@ -146,6 +153,32 @@ def protected(config: dict[str, Any]) -> list[str]:
     return ["main", config["base_branch"], *config["protected_branches"]]
 
 
+# What a role may do in a repository, by mode (see the module docstring).
+EVERYTHING = frozenset({"main_worktree", "herdr", "push", "merge"})
+POOL_ROLES = {
+    "coordinator": frozenset({"main_worktree", "herdr", "locked_push"}),
+    "integrator": frozenset({"herdr", "locked_push"}),
+}
+LOCK_RUNNER = "pool-state.py"
+
+
+def privileges(config: dict[str, Any] | None) -> frozenset[str]:
+    """What this session's CLAUDE_ROLE may do in the repository with these settings."""
+    role = os.environ.get("CLAUDE_ROLE", "")
+    if config is None or not role:
+        return frozenset()
+    if config.get("mode") == "pool":
+        return POOL_ROLES.get(role, frozenset())
+    return EVERYTHING if role == "integrator" else frozenset()
+
+
+def messageable(config: dict[str, Any]) -> set[str]:
+    """herdr names a development agent may `agent prompt` in this repository."""
+    if config.get("mode") == "pool":
+        return {config["coordinator_name"], *config["integrator_pool"]}
+    return {config["integrator_name"]}
+
+
 def push_target(refspec: str) -> str:
     """Branch a `git push` refspec writes: the part after `:`, without `+` and `refs/heads/`."""
     dest = refspec.lstrip("+").rsplit(":", 1)[-1]
@@ -153,8 +186,11 @@ def push_target(refspec: str) -> str:
 
 
 def in_main_worktree(path: str) -> bool:
+    """Whether `path` is in an enabled repository's main worktree this session may not change."""
     dirs = git_dirs(path)
-    return dirs is not None and dirs[0] == dirs[1] and enabled(dirs[1])
+    if dirs is None or dirs[0] != dirs[1] or not enabled(dirs[1]):
+        return False
+    return "main_worktree" not in privileges(settings(path))
 
 
 def resolve(cwd: str, path: str) -> str:
@@ -258,7 +294,7 @@ def is_herdr(word: str, args: list[str]) -> bool:
     return word.startswith("$") and herdr_reason(args) is not None
 
 
-def check_segment(  # noqa: C901 (complexity 35; capped by lizard, see docs/code-quality.md)
+def check_segment(  # noqa: C901 (complexity 22; capped by lizard, see docs/code-quality.md)
     words: list[str], cwd: str, session: str = "", depth: int = 0
 ) -> str | None:
     """Reason to block this simple command, or None.
@@ -308,13 +344,16 @@ def check_segment(  # noqa: C901 (complexity 35; capped by lizard, see docs/code
     if inner is not None and depth < MAX_DEPTH:
         return check_command(inner, cwd, session, depth + 1)
 
+    if prog == LOCK_RUNNER and args[:2] == ["lock", "run"] and "--" in args:
+        # The merge lock's runner: check the command it runs, as run under the lock.
+        return check_locked(args[args.index("--") + 1 :], cwd, session, depth)
     if is_herdr(words[0], args):
         # Either directory being in an enabled repository is enough: a `cd` out of the repo
         # must not disable the rule, and neither must starting outside it and `cd`-ing in.
         configs = [c for c in (settings(session), settings(cwd)) if c is not None]
-        if not configs:
+        if not configs or any("herdr" in privileges(c) for c in configs):
             return None
-        return herdr_reason(args, {c["integrator_name"] for c in configs})
+        return herdr_reason(args, set().union(*(messageable(c) for c in configs)))
     if prog == "npx" or (prog in {"uv", "pnpm"} and args[:1] in (["run"], ["exec"], ["dlx"])):
         # `uv run ruff ...`, `npx prettier ...`: check the tool that actually runs.
         args = args[1:] if prog != "npx" else args
@@ -323,35 +362,76 @@ def check_segment(  # noqa: C901 (complexity 35; capped by lizard, see docs/code
         prog, args = (os.path.basename(args[0]), args[1:]) if args else ("", [])
 
     if prog == "gh" and args[:2] == ["pr", "merge"] and guarded_repo(cwd):
-        return "only the integrator merges pull requests"
-
-    if prog == "git":
-        git_cwd = cwd
-        while len(args) >= 2 and args[0] in {"-C", "-c"}:
-            if args[0] == "-C":
-                git_cwd = resolve(git_cwd, args[1])
-            args = args[2:]
-        sub = args[0] if args else ""
-        config = settings(git_cwd) if sub == "push" else None
-        if config is not None:
-            refs = [a for a in args[1:] if not a.startswith("-")]
-            if {"--all", "--mirror"} & set(args):
-                return "`git push --all/--mirror` would push protected branches"
-            patterns = protected(config)
-            for ref in refs[1:]:
-                branch = push_target(ref)
-                if any(fnmatch.fnmatchcase(branch, p) for p in patterns):
-                    return (f"pushing to the protected branch {branch}; open a pull request "
-                            "with /multi-agent-herdr:pr instead")  # fmt: skip
-        if sub in GIT_MUTATING and in_main_worktree(git_cwd):
-            return f"`git {sub}` in the main worktree"
-        changes_branch = sub == "branch" and {"-d", "-D", "-m", "-M", "-f"} & set(args)
-        if changes_branch and in_main_worktree(git_cwd):
-            return "`git branch` changes in the main worktree"
+        if "merge" not in privileges(settings(cwd)):
+            return "only the integrator merges pull requests, with git (integrate-pr.sh)"
         return None
-
+    if prog == "git":
+        return check_git(args, cwd)
     if not in_main_worktree(cwd):
         return None
+    return check_writers(prog, args, cwd)
+
+
+def check_locked(inner: list[str], cwd: str, session: str, depth: int) -> str | None:
+    """Reason to block the command `pool-state.py lock run -- <inner>` runs under the lock.
+
+    A `git` command is checked as run under the merge lock (a pool role may push a protected
+    branch there); anything else is checked like any other command.
+    """
+    if not inner:
+        return None
+    if os.path.basename(inner[0]) == "git":
+        return check_git(inner[1:], cwd, locked=True)
+    return check_segment(inner, cwd, session, depth + 1)
+
+
+def check_push(args: list[str], config: dict[str, Any], locked: bool) -> str | None:
+    """Reason to block a `git push` (its arguments after `push`) in an enabled repository."""
+    privs = privileges(config)
+    if "push" in privs:
+        return None
+    if {"--all", "--mirror"} & set(args):
+        return "`git push --all/--mirror` would push protected branches"
+    refs = [a for a in args if not a.startswith("-")]
+    patterns = protected(config)
+    for ref in refs[1:]:
+        branch = push_target(ref)
+        if not any(fnmatch.fnmatchcase(branch, p) for p in patterns):
+            continue
+        if "locked_push" in privs:
+            if locked:
+                continue
+            return (f"pushing to the protected branch {branch} outside the merge lock; run it as "
+                    f"`{LOCK_RUNNER} lock run --owner <name> -- git push ...` "
+                    "(integrate-pr.sh does)")  # fmt: skip
+        return (f"pushing to the protected branch {branch}; open a pull request "
+                "with /multi-agent-herdr:pr instead")  # fmt: skip
+    return None
+
+
+def check_git(args: list[str], cwd: str, locked: bool = False) -> str | None:
+    """Reason to block a `git ...` command (its arguments after `git`), or None."""
+    git_cwd = cwd
+    while len(args) >= 2 and args[0] in {"-C", "-c"}:
+        if args[0] == "-C":
+            git_cwd = resolve(git_cwd, args[1])
+        args = args[2:]
+    sub = args[0] if args else ""
+    config = settings(git_cwd) if sub == "push" else None
+    if config is not None:
+        reason = check_push(args[1:], config, locked)
+        if reason:
+            return reason
+    if sub in GIT_MUTATING and in_main_worktree(git_cwd):
+        return f"`git {sub}` in the main worktree"
+    changes_branch = sub == "branch" and {"-d", "-D", "-m", "-M", "-f"} & set(args)
+    if changes_branch and in_main_worktree(git_cwd):
+        return "`git branch` changes in the main worktree"
+    return None
+
+
+def check_writers(prog: str, args: list[str], cwd: str) -> str | None:
+    """Reason to block a dependency change, formatter or file writer run in the main worktree."""
     if prog in DEP_CHANGERS and args[:1] and args[0] in DEP_CHANGERS[prog]:
         return f"`{prog} {args[0]}` changes the main worktree's dependencies"
     if rewrites_files(prog, args):
@@ -382,12 +462,14 @@ def check_command(command: str, cwd: str, session: str, depth: int = 0) -> str |
 
 
 def main() -> int:
-    if os.environ.get("CLAUDE_ROLE") == "integrator":
-        return 0
     try:
         payload = json.load(sys.stdin)
         command = payload.get("tool_input", {}).get("command", "")
         cwd = payload.get("cwd") or os.getcwd()
+        if os.environ.get("CLAUDE_ROLE") == "integrator":
+            config = settings(cwd)
+            if config is None or config.get("mode") != "pool":
+                return 0  # single mode: the integrator may do everything
         reason = check_command(command, cwd, session=cwd)
     except Exception:  # a broken guard must not block the session
         return 0
@@ -395,7 +477,8 @@ def main() -> int:
         return 0
     print(
         f"Blocked: {reason}.\n"
-        "Only the integrator agent may change the main worktree or the protected branches. "
+        "Only the integrator agent (in pool mode: the coordinator) may change the main worktree, "
+        "and only the integrator(s) the protected branches. "
         "Development happens "
         "in a worktree of its own, started by the integrator with /multi-agent-herdr:dispatch "
         '(one git worktree and one herdr workspace per agent). See "Multi-agent workflow" in '

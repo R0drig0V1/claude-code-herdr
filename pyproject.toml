@@ -31,7 +31,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.mccabe]
-# New code stays at or below 15. The only function above it today, check_segment (35), has a
+# New code stays at or below 15. The only function above it today, check_segment (22), has a
 # `noqa: C901` and is capped by the lizard ceiling in .github/workflows/quality.yml
 # (docs/code-quality.md, "Thresholds").
 max-complexity = 15

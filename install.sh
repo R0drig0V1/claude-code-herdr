@@ -10,7 +10,8 @@
 #
 # What it does:
 # - Copies the project-owned files of template/ (CLAUDE.md, scripts/check.sh,
-#   scripts/integrator.sh, .claude/prompts/integrator.md, docs/ indexes) into the repository.
+#   scripts/integrator.sh, scripts/coordinator.sh, .claude/prompts/{integrator,coordinator}.md,
+#   docs/ indexes) into the repository.
 #   Existing files are kept and listed, unless --force.
 # - Enables the plugin for the project in .claude/settings.json: copied when absent, merged
 #   with jq when present (the snippet is printed when jq is missing). An enabled old
@@ -151,4 +152,7 @@ Next steps:
   4. Inside herdr, run /multi-agent-herdr:setup once, launch the integrator with
      scripts/integrator.sh, and start development agents from it with
      /multi-agent-herdr:dispatch <type>/<name> <task>.
+     Many agents: add an "integrators" object to .claude/multi-agent-herdr.json and launch
+     scripts/coordinator.sh instead (pool mode, docs/multi-integrator.md); set this
+     machine's limits in ~/.config/multi-agent-herdr/resources.json.
 EOF

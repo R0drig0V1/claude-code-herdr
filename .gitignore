@@ -2,8 +2,9 @@
 # Claude Code local settings
 .claude/settings.local.json
 .env
-# tests/test-hooks.sh scratch repositories
+# tests/test-hooks.sh and tests/test-pool.sh scratch repositories
 .test-work/
+.test-work-pool/
 __pycache__/
 # uv dev environment and linter caches (pyproject.toml, docs/code-quality.md)
 .venv/

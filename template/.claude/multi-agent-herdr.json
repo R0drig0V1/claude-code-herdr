@@ -1,5 +1,5 @@
 {
-  "$comment": "multi-agent-herdr settings (README, Configuration). These are the defaults, except integrator_name, which defaults to integrator-<repository directory name> (herdr names are unique per server); set it only to override that. Change base_branch when pull requests target an integration branch such as dev.",
+  "$comment": "multi-agent-herdr settings (README, Configuration). These are the defaults, except integrator_name, which defaults to integrator-<repository directory name> (herdr names are unique per server); set it only to override that. Change base_branch when pull requests target an integration branch such as dev. Add an \"integrators\" object (for example {\"max\": 3, \"scale_up_when_active_agents_gt\": 5}) to switch to pool mode: a coordinator plus N parallel integrators (docs/multi-integrator.md).",
   "base_branch": "main",
   "protected_branches": []
 }
