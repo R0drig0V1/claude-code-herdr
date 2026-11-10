@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Guideline "move work forward proactively", in the `dispatch` skill, the integrator prompt,
+  the template `CLAUDE.md` and the README. The integrator starts agents for every task that
+  can start now, without waiting to be asked, and always starts writing code early. It does
+  not force work: no agents for undecided designs, for collisions with branches in flight,
+  or for work a pending decision would make us amend.
 - SessionStart hook `session-start-integrator.sh`: an integrator session (`CLAUDE_ROLE=integrator`,
   inside herdr, in the main worktree of a repository that enables the plugin) takes its herdr
   name with `scripts/claim-integrator.sh` as it starts, relaunches and resumed sessions
