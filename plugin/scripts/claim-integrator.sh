@@ -20,9 +20,7 @@ set -euo pipefail
 
 [[ "${CLAUDE_ROLE:-}" == integrator ]] || { echo "only the integrator (CLAUDE_ROLE=integrator)" >&2; exit 1; }
 [[ "${HERDR_ENV:-}" == 1 ]] || { echo "not inside herdr (HERDR_ENV != 1)" >&2; exit 1; }
-# shellcheck source=../lib/python.sh
-source "$(dirname "$0")/../lib/python.sh"
-name=$(py_run "$(dirname "$0")/project-config.py" integrator_name) || exit 1
+name=$("$(dirname "$0")/project-config.py" integrator_name) || exit 1
 
 # Not $HERDR_PANE_ID: it goes stale when a pane is moved; --current resolves the live pane.
 pane=$(herdr pane current --current | jq -r '.result.pane.pane_id // empty')

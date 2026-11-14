@@ -32,39 +32,17 @@ integrator: /multi-agent-herdr:integrate (verify, merge or bounce, PR comment, h
 ## Install
 
 Requirements: herdr (built against 0.9.5) with Claude Code running inside it (`HERDR_ENV=1`),
-`git`, `bash`, `jq`, Python 3.9+ (as `python3`, `python` or `py`) and the GitHub CLI `gh`.
+`git`, `bash`, `jq`, `python3` (3.9+) and the GitHub CLI `gh`.
 
-**Platforms.** macOS, Linux and Windows:
-
-| Platform | Shell the plugin runs in | herdr | Notes |
-|---|---|---|---|
-| macOS | bash | `curl -fsSL https://herdr.dev/install.sh \| sh` or `brew install herdr` | |
-| Linux | bash | `curl -fsSL https://herdr.dev/install.sh \| sh` | WSL counts as Linux |
-| Windows | Git Bash ([Git for Windows](https://git-scm.com/download/win)), the shell Claude Code uses there | `irm https://herdr.dev/install.ps1 \| iex` (native Windows build) | `jq`: `winget install jqlang.jq`; Python from python.org (`py`) works |
-
-Every hook and script runs through `plugin/run`, which picks the Python interpreter
-(`MULTI_AGENT_HERDR_PYTHON` overrides it) and normalises Windows paths, so nothing relies on
-shebangs or the executable bit. `.gitattributes` keeps the scripts LF in Windows checkouts.
-Native Windows herdr is younger than the Unix build: `herdr terminal attach` and live server
-handoff are not supported there ([herdr docs](https://herdr.dev/docs/windows-beta/)).
-
-1. herdr: the installer below offers to install it when it is missing (official installer for
-   the platform, only after you confirm; other methods: https://herdr.dev/docs/install/), and
-   then `herdr integration install claude`.
+1. herdr, if missing: `curl -fsSL https://herdr.dev/install.sh | sh` (other methods:
+   https://herdr.dev/tui/docs/install/), then `herdr integration install claude`.
 2. From inside the repository you want to set up (copies the project-owned files without
-   overwriting, `--dry-run` previews, `--force` overwrites, `--yes` installs herdr without
-   asking, `--no-herdr` never does, and enables the plugin in `.claude/settings.json`):
+   overwriting, `--dry-run` previews, `--force` overwrites, and enables the plugin in
+   `.claude/settings.json`):
 
    ```bash
-   # macOS, Linux, or Git Bash on Windows
    curl -fsSL https://raw.githubusercontent.com/R0drig0V1/claude-code-herdr/main/install.sh | bash
    # or, from a local clone:  bash /path/to/claude-code-herdr/install.sh
-   ```
-
-   ```powershell
-   # Windows PowerShell (needs Git for Windows; runs install.sh through Git Bash)
-   irm https://raw.githubusercontent.com/R0drig0V1/claude-code-herdr/main/install.ps1 | iex
-   # with options: & ([scriptblock]::Create((irm <same URL>))) -Yes   (-DryRun, -Force, -NoHerdr)
    ```
 
 3. Install the plugin for the project:
@@ -179,7 +157,6 @@ their settings and keep it; `/multi-agent-herdr:setup` offers to remove the key.
 | Hook | `session-start-worktree.sh` | Tells sessions in the main worktree to route changes through the integrator's `dispatch` |
 | Hook | `session-start-integrator.sh` | Gives the integrator session its herdr name (`claim-integrator.sh`) as it starts, relaunches and resumes included |
 | Hook | `notify.sh` | Sound and terminal bell on Stop / Notification |
-| Launcher | `run` | Runs every hook and script on macOS, Linux and Windows (Git Bash): picks Python 3.9+ (`lib/python.sh`), normalises `C:\` paths, fails open for hooks without Python |
 | Script | `new-worktree.sh`, `verify-merge.sh` | Worktree creation; verification gate whose exit code is the verdict |
 | Script | `agents-in-repo.py` | Read-only: live herdr agents whose pane cwd is in a worktree of this repository (`--branch`, `--name`, `--main-worktree`) |
 | Script | `claim-integrator.sh` | Gives the integrator session its herdr name (`integrator_name`), or refuses when another agent holds it; run by the SessionStart hook, and by `dispatch` and `integrate` as a fallback |
@@ -228,7 +205,7 @@ or attaches the TUI.
 ## Limitations
 
 - The guards are **guardrails, not a sandbox**. They parse commands with `shlex`, and a
-  deliberately creative command can get past them. They fail open: if Python 3.9+ or `jq` is
+  deliberately creative command can get past them. They fail open: if `python3` or `jq` is
   missing, or the hook errors, the command is allowed.
   The guard follows `cd`, the `env`/`command`/`exec`/`builtin`/`nohup`/`time` prefixes,
   `sh|bash|zsh -c` and `eval` strings, and recognises herdr behind `$HERDR_BIN_PATH` or any
@@ -244,14 +221,11 @@ or attaches the TUI.
 - `tests/test-hooks.sh` builds its repositories under `.test-work/` (or `~/.cache` when the
   checkout is in a temporary directory, where the Bash guard allows writes on purpose).
 - `verify-merge.sh` is only as strong as your `scripts/check.sh`.
-- On Windows the plugin needs Git Bash; PowerShell or cmd.exe as Claude Code's shell is not
-  supported. The Bash guard maps Git Bash paths (`/c/...`, `/tmp/...`) to Windows ones, but a
-  command written with `C:\...` backslash paths is parsed as POSIX shell and may get through.
 
 ## Development
 
 ```bash
-tests/test-hooks.sh                 # hook, launcher, installer and agents-in-repo.py smoke tests (Git Bash on Windows)
+tests/test-hooks.sh                 # hook, installer and agents-in-repo.py smoke tests
 tests/check-skill-substitutions.py  # skills: no $0, $1, ... or $ARGUMENTS in shell code (also run by test-hooks.sh)
 claude plugin validate plugin && claude plugin validate .
 uv run ruff check . && uv run ruff format --check .   # Python lint + format (pinned in uv.lock)

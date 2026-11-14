@@ -9,24 +9,6 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- Windows and Linux support next to macOS. `plugin/run` launches every hook and script:
-  it picks Python 3.9+ (`python3`, `python` or `py`, or `MULTI_AGENT_HERDR_PYTHON`; shared
-  `plugin/lib/python.sh`), runs `.sh` files with bash, and normalises backslash
-  `CLAUDE_PLUGIN_ROOT` paths. On Windows the plugin runs in Git Bash next to native herdr.
-- `install.sh` installs herdr when it is missing, after asking (`--yes`, `--no-herdr`), with
-  herdr's official installer for the platform, then offers `herdr integration install claude`.
-  It also adds `*.sh text eol=lf` to the project's `.gitattributes`.
-- `install.ps1`: Windows PowerShell entry point. Checks Git for Windows, installs herdr with
-  `https://herdr.dev/install.ps1` after asking, and runs `install.sh` through Git Bash.
-- CI runs on `windows-latest` (Git Bash, `core.autocrlf=true`) besides Ubuntu and macOS.
-
-### Changed
-- `hooks.json`, the skills and the scripts call plugin code through `run` instead of
-  executing script paths. The Bash guard maps Git Bash paths (`/c/...`, `/tmp/...`) and the
-  Windows temporary directories, and recognises `herdr.exe`. `agents-in-repo.py` finds herdr
-  with `shutil.which`. `notify.sh` skips the terminal bell in Git Bash. The setup skill gives
-  the herdr install command for each platform.
-- `.gitattributes` keeps the repository's scripts LF in Windows checkouts.
 - Weekly `update-security-audit.yml` workflow and `.github/scripts/update-security-audit.sh`:
   move the vendored security-audit skill to the newest upstream commit at least 7 days old and
   open a pull request for review, Dependabot style. The pinned commit is in

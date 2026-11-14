@@ -18,8 +18,6 @@ set -uo pipefail
 [[ "${CLAUDE_ROLE:-}" == "integrator" ]] && exit 0
 
 cwd=$(jq -r '.cwd // empty' 2>/dev/null)
-# Windows: Claude Code sends C:\... paths; Git Bash, git and jq all take C:/... too.
-cwd=${cwd//\\//}
 [[ -z "$cwd" || ! -d "$cwd" ]] && exit 0
 
 git_dir=$(git -C "$cwd" rev-parse --absolute-git-dir 2>/dev/null) || exit 0

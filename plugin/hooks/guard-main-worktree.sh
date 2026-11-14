@@ -20,8 +20,6 @@ set -euo pipefail
 
 file=$(jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')
 [[ -z "$file" ]] && exit 0
-# Windows: Claude Code sends C:\... paths; Git Bash, git and jq all take C:/... too.
-file=${file//\\//}
 
 # New files may live in directories that do not exist yet: climb to the nearest one.
 dir=$(dirname "$file")

@@ -25,11 +25,8 @@ set -uo pipefail
 [[ "${CLAUDE_ROLE:-}" == integrator && "${HERDR_ENV:-}" == 1 ]] || exit 0
 
 agent_id="" cwd=""
-# tr -d '\r': a native Windows jq ends lines with CRLF, and read keeps the CR.
-{ IFS= read -r agent_id; IFS= read -r cwd; } < <(jq -r '(.agent_id // ""), (.cwd // "")' 2>/dev/null | tr -d '\r')
+{ IFS= read -r agent_id; IFS= read -r cwd; } < <(jq -r '(.agent_id // ""), (.cwd // "")' 2>/dev/null)
 [[ -z "$agent_id" ]] || exit 0   # subagent
-# Windows: Claude Code sends C:\... paths; Git Bash, git and jq all take C:/... too.
-cwd=${cwd//\\//}
 [[ -n "$cwd" && -d "$cwd" ]] || exit 0
 
 git_dir="" common_dir=""
@@ -40,8 +37,6 @@ repo_root=$(dirname "$common_dir")
 
 # shellcheck source=plugin-enabled.sh
 source "$(dirname "$0")/plugin-enabled.sh"
-# shellcheck source=../lib/python.sh
-source "$(dirname "$0")/../lib/python.sh"
 plugin_enabled "$repo_root" || exit 0
 
 plugin_root="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -53,7 +48,7 @@ say() {  # say <context>
 }
 
 status_dir=$(mktemp -d "${TMPDIR:-/tmp}/multi-agent-herdr-claim.XXXXXX") \
-    || say "multi-agent-herdr: could not claim the integrator's herdr name (no temporary directory). Run \"\${CLAUDE_PLUGIN_ROOT}/run\" scripts/claim-integrator.sh (or /multi-agent-herdr:integrate) before development agents announce PRs."
+    || say "multi-agent-herdr: could not claim the integrator's herdr name (no temporary directory). Run \"\${CLAUDE_PLUGIN_ROOT}/scripts/claim-integrator.sh\" (or /multi-agent-herdr:integrate) before development agents announce PRs."
 
 # The worker writes the first attempt's exit code, integrator_name and output to
 # $status_dir/first (renamed into place, so the hook never reads half a file), then keeps
@@ -62,9 +57,9 @@ status_dir=$(mktemp -d "${TMPDIR:-/tmp}/multi-agent-herdr-claim.XXXXXX") \
 (
     cd "$repo_root" || exit 0
     for attempt in $(seq 1 31); do
-        out=$(bash "$claim" 2>&1); rc=$?
+        out=$("$claim" 2>&1); rc=$?
         if [[ $attempt == 1 ]]; then
-            name=$(py_run "$plugin_root/scripts/project-config.py" --root "$repo_root" integrator_name \
+            name=$("$plugin_root/scripts/project-config.py" --root "$repo_root" integrator_name \
                 2>/dev/null) || name="(integrator_name)"
             printf '%s\n%s\n%s\n' "$rc" "$name" "$out" > "$status_dir/first.tmp" 2>/dev/null \
                 && mv -f "$status_dir/first.tmp" "$status_dir/first" 2>/dev/null

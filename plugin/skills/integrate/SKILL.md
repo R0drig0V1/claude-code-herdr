@@ -20,7 +20,7 @@ the base branch, one PR at a time, and keep it green. The workflow is described 
 ## 0. Preconditions (stop and tell the user if any fails)
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/run" scripts/project-config.py; echo "exit=$?"   # project settings
+"${CLAUDE_PLUGIN_ROOT}/scripts/project-config.py"; echo "exit=$?"   # project settings
 ```
 
 Below, **`<base>`** is `base_branch` (default `main`) and **`<integrator>`** is
@@ -35,7 +35,7 @@ git switch <base> && git status --short                # must be empty
 gh auth status
 git fetch origin --prune && git merge --ff-only origin/<base>
 test "${HERDR_ENV:-}" = 1                              # inside herdr
-"${CLAUDE_PLUGIN_ROOT}/run" scripts/claim-integrator.sh; echo "exit=$?"
+"${CLAUDE_PLUGIN_ROOT}/scripts/claim-integrator.sh"; echo "exit=$?"
 ```
 
 Development agents announce to the herdr agent named `<integrator>`; `claim-integrator.sh`
@@ -79,12 +79,12 @@ latest one (or the previous new migration of the same PR). Otherwise two branche
 the same number: bounce it, the author renumbers and re-chains onto `<base>`'s head. Never merge a PR
 that creates a second migration head.
 
-**Merge locally and verify the merged result** with `"${CLAUDE_PLUGIN_ROOT}/run" scripts/verify-merge.sh`, never with
+**Merge locally and verify the merged result** with `${CLAUDE_PLUGIN_ROOT}/scripts/verify-merge.sh`, never with
 hand-typed checks:
 
 ```bash
 git merge --no-ff --no-commit origin/$B
-"${CLAUDE_PLUGIN_ROOT}/run" scripts/verify-merge.sh; echo "verify exit=$?"
+"${CLAUDE_PLUGIN_ROOT}/scripts/verify-merge.sh"; echo "verify exit=$?"
 ```
 
 The script runs `scripts/check.sh` (the project's lint, type and test commands) on the merged
@@ -100,7 +100,7 @@ Conflicts: resolve them yourself only when they are mechanical (two ticks in the
 If the verification fails, it is also a bounce. A bounce always ends with:
 
 ```bash
-git merge --abort && "${CLAUDE_PLUGIN_ROOT}/run" scripts/verify-merge.sh --reset-only
+git merge --abort && "${CLAUDE_PLUGIN_ROOT}/scripts/verify-merge.sh" --reset-only
 ```
 
 Put the failing step and its output in the PR comment.
@@ -143,7 +143,7 @@ Immediate, to the herdr agent that owns the branch. Resolve it from git and herd
 never from names:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/run" scripts/agents-in-repo.py --branch "$B"; echo "exit=$?"
+"${CLAUDE_PLUGIN_ROOT}/scripts/agents-in-repo.py" --branch "$B"; echo "exit=$?"
 ```
 
 It maps the branch to its worktree (`git worktree list`) and prints the live herdr agents
@@ -173,7 +173,7 @@ share (migrations, shared models, lockfiles, `CLAUDE.md`, `docs/phases/`):
 
 ```bash
 git diff --name-only <sha>^1 <sha>
-"${CLAUDE_PLUGIN_ROOT}/run" scripts/agents-in-repo.py --exclude <integrator> --exclude "<author>"
+"${CLAUDE_PLUGIN_ROOT}/scripts/agents-in-repo.py" --exclude <integrator> --exclude "<author>"
 ```
 
 Skip the line whose branch is `<base>` (the main worktree) and the `blocked` ones (list those for

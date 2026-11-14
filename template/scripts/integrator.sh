@@ -47,20 +47,5 @@ if [[ "${1:-}" == --print-name ]]; then  # used by the plugin's tests; launches 
     echo "$name"
     exit 0
 fi
-# claude: on PATH, else where its installers put it. A herdr server started before Claude Code
-# was installed hands its panes the old PATH (Windows above all), so look there too.
-claude_bin=$(command -v claude || true)
-if [[ -z "$claude_bin" ]]; then
-    appdata=${APPDATA:-}; appdata=${appdata//\\//}
-    for c in "$HOME/.local/bin/claude" "$HOME/.local/bin/claude.exe" "$HOME/.claude/local/claude" \
-             ${appdata:+"$appdata/npm/claude.cmd"}; do
-        if [[ -f "$c" ]]; then claude_bin=$c; break; fi
-    done
-fi
-[[ -n "$claude_bin" ]] || {
-    echo "claude not found on PATH. If herdr was started before Claude Code was installed," \
-        "its panes have the old PATH: restart herdr (or add Claude Code's directory to PATH)." >&2
-    exit 127
-}
-CLAUDE_ROLE=integrator exec "$claude_bin" --name "$name" \
+CLAUDE_ROLE=integrator exec claude --name "$name" \
     --append-system-prompt-file "$repo_root/.claude/prompts/integrator.md" "$@"
