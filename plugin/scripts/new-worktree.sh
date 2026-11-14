@@ -23,11 +23,9 @@ branch="${1:?usage: new-worktree.sh <type>/<short-kebab-name>}"
 [[ "$branch" == */* ]] || { echo "branch must look like <type>/<name>, got: $branch" >&2; exit 1; }
 
 repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-# shellcheck source=../lib/python.sh
-source "$(dirname "$0")/../lib/python.sh"
 config="$(dirname "$0")/project-config.py"
-base_branch=$(py_run "$config" --root "$repo_root" base_branch)
-prefix=$(py_run "$config" --root "$repo_root" worktree_prefix)
+base_branch=$("$config" --root "$repo_root" base_branch)
+prefix=$("$config" --root "$repo_root" worktree_prefix)
 name="${branch#*/}"
 worktree="$(dirname "$repo_root")/${prefix}${name}"
 

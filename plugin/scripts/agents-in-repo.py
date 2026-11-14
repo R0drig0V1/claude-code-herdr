@@ -30,8 +30,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
-import shutil
 import subprocess
 import sys
 
@@ -54,30 +52,17 @@ def worktrees() -> list[tuple[str, str]]:
             ref = line[len("branch ") :]
             branch = ref[len("refs/heads/") :] if ref.startswith("refs/heads/") else ref
         elif not line and path:
-            result.append((os.path.realpath(native(path)), branch))
+            result.append((os.path.realpath(path), branch))
             path = None
     return result
 
 
-def native(path: str) -> str:
-    """On Windows, a Git Bash path (`/c/Users/x`) as python.exe sees it (`C:/Users/x`)."""
-    if os.name == "nt":
-        path = re.sub(r"^/([A-Za-z])(/|$)", lambda m: f"{m.group(1).upper()}:/", path)
-    return path
-
-
-def same_or_inside(cwd: str, path: str) -> bool:
-    """Whether `cwd` is `path` or below it (case-insensitive on Windows)."""
-    cwd, path = os.path.normcase(cwd), os.path.normcase(path)
-    return cwd == path or cwd.startswith(path.rstrip(os.sep) + os.sep)
-
-
 def owner(cwd: str, trees: list[tuple[str, str]]) -> tuple[str, str] | None:
     """The deepest worktree containing `cwd`, or None."""
-    cwd = os.path.realpath(native(cwd))
+    cwd = os.path.realpath(cwd)
     best = None
     for path, branch in trees:
-        if same_or_inside(cwd, path):
+        if cwd == path or cwd.startswith(path.rstrip(os.sep) + os.sep):
             if best is None or len(path) > len(best[0]):
                 best = (path, branch)
     return best
@@ -102,9 +87,7 @@ def main() -> int:
         return 1
 
     try:
-        # shutil.which: on Windows it also finds herdr through PATHEXT (herdr.exe, a .cmd shim).
-        herdr = shutil.which("herdr") or "herdr"
-        proc = subprocess.run([herdr, "agent", "list"], capture_output=True, text=True)
+        proc = subprocess.run(["herdr", "agent", "list"], capture_output=True, text=True)
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr.strip() or f"exit {proc.returncode}")
         agents = json.loads(proc.stdout)["result"]["agents"]

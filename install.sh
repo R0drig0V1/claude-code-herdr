@@ -6,8 +6,7 @@
 #
 # Usage (from inside the target repository):
 #   curl -fsSL https://raw.githubusercontent.com/R0drig0V1/claude-code-herdr/main/install.sh | bash
-#   bash /path/to/claude-code-herdr/install.sh [--dry-run] [--force] [--yes] [--no-herdr]
-# On Windows, run it from Git Bash, or use install.ps1 from PowerShell (it calls this script).
+#   bash /path/to/claude-code-herdr/install.sh [--dry-run] [--force]
 #
 # What it does:
 # - Copies the project-owned files of template/ (CLAUDE.md, scripts/check.sh,
@@ -17,17 +16,11 @@
 #   with jq when present (the snippet is printed when jq is missing). An enabled old
 #   multi-agent@claude-code-multi-agent plugin, which this one replaces, is set to false there:
 #   both plugins' guards would run otherwise.
-# - Appends the missing .gitignore lines, and `*.sh text eol=lf` to .gitattributes.
-# - Installs herdr when it is missing, after asking (--yes: without asking; --no-herdr or
-#   MULTI_AGENT_HERDR_SKIP_HERDR=1: never), with herdr's official installer for the platform:
-#   https://herdr.dev/install.sh on macOS and Linux, https://herdr.dev/install.ps1 through
-#   powershell.exe on Windows (Git Bash). Then offers `herdr integration install claude`.
-#   Without a terminal to ask on, it only prints the command.
+# - Appends the missing .gitignore lines.
 # The plugin itself (skills, agents, hooks, worktree and verify scripts) is not copied: Claude
 # Code installs it from the marketplace the settings point at, and updates it from there.
 #
-# Needs git and bash (Git Bash on Windows); jq to merge an existing settings.json; curl
-# (macOS, Linux) or PowerShell (Windows) to install herdr.
+# Needs git and bash; jq to merge an existing settings.json.
 set -euo pipefail
 
 REPO_URL="https://github.com/R0drig0V1/claude-code-herdr.git"
@@ -37,16 +30,11 @@ OLD_PLUGIN="multi-agent@claude-code-multi-agent"   # the plugin this one replace
 
 dry_run=false
 force=false
-assume_yes=false
-skip_herdr=false
-[[ "${MULTI_AGENT_HERDR_SKIP_HERDR:-}" == 1 ]] && skip_herdr=true
 for arg in "$@"; do
     case "$arg" in
         --dry-run) dry_run=true ;;
         --force) force=true ;;
-        --yes|-y) assume_yes=true ;;
-        --no-herdr) skip_herdr=true ;;
-        -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true; exit 0 ;;
+        -h|--help) sed -n '2,23p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true; exit 0 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
@@ -122,92 +110,27 @@ if [[ -f "$local_settings" ]] && command -v jq >/dev/null 2>&1 \
     settings_note+="${settings_note:+; }WARNING: .claude/settings.local.json still enables $OLD_PLUGIN: set it to false"
 fi
 
-# .gitignore and .gitattributes lines.
+# .gitignore lines.
+gitignore="$target/.gitignore"
 added=()
-append_line() {  # append_line <file name> <line>: add it unless the file already has it
-    local file="$target/$1" line="$2"
-    grep -qxF "$line" "$file" 2>/dev/null && return
-    added+=("$1: $line")
-    $dry_run && return
-    # A last line without its newline would be glued to ours ("node_modules.env").
-    if [[ -s "$file" && -n "$(tail -c 1 "$file")" ]]; then
-        printf '\n' >> "$file"
+for line in ".claude/settings.local.json" ".env"; do
+    if ! grep -qxF "$line" "$gitignore" 2>/dev/null; then
+        added+=("$line")
+        $dry_run && continue
+        # A last line without its newline would be glued to ours ("node_modules.env").
+        if [[ -s "$gitignore" && -n "$(tail -c 1 "$gitignore")" ]]; then
+            printf '\n' >> "$gitignore"
+        fi
+        printf '%s\n' "$line" >> "$gitignore"
     fi
-    printf '%s\n' "$line" >> "$file"
-}
-append_line .gitignore ".claude/settings.local.json"
-append_line .gitignore ".env"
-# The workflow's shell scripts must keep LF line endings in Windows checkouts
-# (core.autocrlf=true): a CRLF shebang line breaks them in Git Bash.
-append_line .gitattributes "*.sh text eol=lf"
-
-# herdr itself: the official installer of the platform, only after the user agrees.
-confirm() {  # confirm <question>: --yes, or a "y" typed on the terminal (also under curl | bash)
-    $assume_yes && return 0
-    local answer
-    printf '%s [y/N] ' "$1" 2>/dev/null >/dev/tty || return 1
-    read -r answer 2>/dev/null </dev/tty || return 1
-    [[ "$answer" == [yY]* ]]
-}
-herdr_note=""
-setup_herdr() {
-    local shown os
-    # install.ps1 handles herdr itself and passes its outcome here, to print with the rest.
-    if [[ -n "${MULTI_AGENT_HERDR_HERDR_NOTE:-}" ]]; then
-        herdr_note=$MULTI_AGENT_HERDR_HERDR_NOTE
-        return
-    fi
-    if command -v herdr >/dev/null 2>&1; then
-        herdr_note="found ($(herdr --version 2>/dev/null | head -n 1))"
-        return
-    fi
-    os=$(uname -s 2>/dev/null)
-    case "$os" in
-        MINGW*|MSYS*|CYGWIN*)
-            shown='powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"' ;;
-        Darwin|Linux) shown='curl -fsSL https://herdr.dev/install.sh | sh' ;;
-        *) herdr_note="not found; no installer for $os, see https://herdr.dev/docs/install/"
-           return ;;
-    esac
-    if $skip_herdr; then herdr_note="not found (skipped); install it with: $shown"; return; fi
-    if $dry_run; then herdr_note="not found; would offer: $shown"; return; fi
-    if ! confirm "herdr is not installed. Install it now with: $shown ?"; then
-        herdr_note="not found; install it with: $shown"
-        return
-    fi
-    local status=0
-    case "$os" in
-        MINGW*|MSYS*|CYGWIN*)
-            powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
-                "irm https://herdr.dev/install.ps1 | iex" || status=$? ;;
-        *) curl -fsSL https://herdr.dev/install.sh | sh || status=$? ;;
-    esac
-    if [[ $status -ne 0 ]]; then
-        herdr_note="installer failed (exit $status); see https://herdr.dev/docs/install/"
-        return
-    fi
-    # The installer's directory may not be on this shell's PATH yet.
-    hash -r
-    if ! command -v herdr >/dev/null 2>&1; then
-        herdr_note="installed; open a new terminal so herdr is on PATH, then run /multi-agent-herdr:setup"
-        return
-    fi
-    herdr_note="installed ($(herdr --version 2>/dev/null | head -n 1))"
-    if confirm "Install herdr's Claude Code integration (herdr integration install claude)?"; then
-        herdr integration install claude >/dev/null 2>&1 \
-            && herdr_note+="; Claude integration installed" \
-            || herdr_note+="; 'herdr integration install claude' failed: rerun it by hand"
-    fi
-}
-setup_herdr
+done
 
 $dry_run && echo "dry run: nothing was written" && echo
 echo "multi-agent-herdr workflow -> $target"
 for f in ${copied[@]+"${copied[@]}"}; do echo "  + $f"; done
 for f in ${skipped[@]+"${skipped[@]}"}; do echo "  = $f (exists, kept; --force to overwrite)"; done
 [[ -n "$settings_note" ]] && echo "  ~ .claude/settings.json: $settings_note"
-for l in ${added[@]+"${added[@]}"}; do echo "  + $l"; done
-echo "  ~ herdr: $herdr_note"
+for l in ${added[@]+"${added[@]}"}; do echo "  + .gitignore: $l"; done
 if [[ "$settings_note" == NOT* ]]; then
     echo
     cat "$src/template/.claude/settings.json"

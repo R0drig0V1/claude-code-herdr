@@ -48,7 +48,6 @@ import re
 import shlex
 import subprocess
 import sys
-import tempfile
 from typing import Any
 
 GIT_MUTATING = {
@@ -158,49 +157,18 @@ def in_main_worktree(path: str) -> bool:
     return dirs is not None and dirs[0] == dirs[1] and enabled(dirs[1])
 
 
-WINDOWS = os.name == "nt"
-MSYS_DRIVE = re.compile(r"^/([A-Za-z])(/|$)")
-
-
-def native(path: str) -> str:
-    """`path` as this Python sees it. On Windows the hook runs under a native python.exe while
-    commands are written for Git Bash: `/c/Users/x` is `C:/Users/x` and `/tmp/` is Git's own
-    temporary directory (any `/tmp/...` stays a temporary path, see is_temp)."""
-    if WINDOWS:
-        path = MSYS_DRIVE.sub(lambda m: f"{m.group(1).upper()}:/", path)
-    return path
-
-
 def resolve(cwd: str, path: str) -> str:
-    return os.path.normpath(os.path.join(native(cwd), os.path.expanduser(native(path))))
-
-
-def temp_prefixes() -> tuple[str, ...]:
-    """TEMP_PREFIXES plus this machine's temporary directories ($TMPDIR, %TEMP%, %TMP%)."""
-    extra = [os.environ.get(v, "") for v in ("TMPDIR", "TEMP", "TMP")] + [tempfile.gettempdir()]
-    dirs = [os.path.normcase(os.path.normpath(native(d))) + os.sep for d in extra if d]
-    return TEMP_PREFIXES + tuple(dirs)
+    return os.path.normpath(os.path.join(cwd, os.path.expanduser(path)))
 
 
 def is_temp(path: str) -> bool:
-    """`path` ends with a separator. Windows paths compare case-insensitively, either slash."""
-    if WINDOWS:
-        path = os.path.normcase(path)
-        return path.replace("\\", "/").startswith(TEMP_PREFIXES) or path.startswith(temp_prefixes())
-    return path.startswith(temp_prefixes())
+    tmpdir = os.environ.get("TMPDIR", "")
+    return path.startswith(TEMP_PREFIXES) or bool(tmpdir and path.startswith(tmpdir))
 
 
 def writes_into_main(cwd: str, target: str) -> bool:
-    if WINDOWS and target.startswith("/tmp/"):  # noqa: S108
-        return False  # Git Bash's /tmp, not a path python.exe can resolve
     path = resolve(cwd, target)
-    return not is_temp(path + os.sep) and in_main_worktree(path)
-
-
-def program(word: str) -> str:
-    """Program name of a command word: its basename; `X.exe` (Windows, case-insensitive) is `x`."""
-    name = os.path.basename(word.replace("\\", "/"))
-    return name[:-4].lower() if name.lower().endswith(".exe") else name
+    return not is_temp(path + "/") and in_main_worktree(path)
 
 
 def rewrites_files(prog: str, args: list[str]) -> bool:
@@ -283,7 +251,7 @@ def is_herdr(word: str, args: list[str]) -> bool:
     injects into its panes (expanded with this hook's environment when set), and any other
     unresolved `$VAR` program whose arguments are a herdr subcommand that sends input.
     """
-    if program(os.path.expandvars(word)) == "herdr":
+    if os.path.basename(os.path.expandvars(word)) == "herdr":
         return True
     if re.fullmatch(r"\$\{?HERDR_\w*\}?", word):
         return True
@@ -329,7 +297,7 @@ def check_segment(  # noqa: C901 (complexity 35; capped by lizard, see docs/code
             break
     if not words:
         return None
-    prog, args = program(words[0]), words[1:]
+    prog, args = os.path.basename(words[0]), words[1:]
 
     # `bash -c '<command>'` and `eval '<command>'`: check the command string itself.
     inner = None
@@ -352,7 +320,7 @@ def check_segment(  # noqa: C901 (complexity 35; capped by lizard, see docs/code
         args = args[1:] if prog != "npx" else args
         while args and args[0].startswith("-"):
             args = args[1:]  # runner options (--quiet, --frozen...)
-        prog, args = (program(args[0]), args[1:]) if args else ("", [])
+        prog, args = (os.path.basename(args[0]), args[1:]) if args else ("", [])
 
     if prog == "gh" and args[:2] == ["pr", "merge"] and guarded_repo(cwd):
         return "only the integrator merges pull requests"

@@ -25,12 +25,12 @@ tab in your workspace, even though the generic herdr skill defaults to sibling p
 ## 0. Preconditions (stop and tell the user if any fails)
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/run" scripts/project-config.py     # project settings; non-zero: invalid file
+"${CLAUDE_PLUGIN_ROOT}/scripts/project-config.py"     # project settings; non-zero: invalid file
 test "${HERDR_ENV:-}" = 1                              # running inside herdr
 [[ "$CLAUDE_ROLE" == integrator ]]                     # the integrator session
 [[ "$(git rev-parse --absolute-git-dir)" == "$(git rev-parse --path-format=absolute --git-common-dir)" ]]   # main worktree
 MAIN=$(git rev-parse --show-toplevel)
-"${CLAUDE_PLUGIN_ROOT}/run" scripts/claim-integrator.sh; echo "exit=$?"   # you hold the integrator's herdr name
+"${CLAUDE_PLUGIN_ROOT}/scripts/claim-integrator.sh"; echo "exit=$?"   # you hold the integrator's herdr name
 ```
 
 Below, **`<base>`** is `base_branch` (default `main`) and **`<integrator>`** is
@@ -68,10 +68,10 @@ Do not reimplement it and do not use `herdr worktree create`: the script owns th
 `.env` copy and the project's `scripts/worktree-setup.sh`.
 
 ```bash
-RUN="${CLAUDE_PLUGIN_ROOT}/run"
-[[ -f "$RUN" ]] || { echo "FATAL: $RUN missing; reinstall multi-agent-herdr" >&2; false; }
-"$RUN" scripts/new-worktree.sh "$BRANCH"
-WT=$("${CLAUDE_PLUGIN_ROOT}/run" scripts/worktree-of.sh "$BRANCH")
+NW="${CLAUDE_PLUGIN_ROOT}/scripts/new-worktree.sh"
+[[ -x "$NW" ]] || { echo "FATAL: $NW missing or not executable; reinstall multi-agent-herdr" >&2; false; }
+"$NW" "$BRANCH"
+WT=$("${CLAUDE_PLUGIN_ROOT}/scripts/worktree-of.sh" "$BRANCH")
 test -d "$WT" && echo "worktree: $WT"
 ```
 

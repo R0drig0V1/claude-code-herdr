@@ -1,6 +1,0 @@
-# Line endings: the plugin's shell and Python scripts must stay LF on every platform, also in
-# Windows checkouts with core.autocrlf=true (a CRLF shebang line breaks them in Git Bash).
-* text=auto eol=lf
-*.ps1 text eol=crlf
-*.cmd text eol=crlf
-*.bat text eol=crlf
