@@ -25,7 +25,8 @@ set -uo pipefail
 [[ "${CLAUDE_ROLE:-}" == integrator && "${HERDR_ENV:-}" == 1 ]] || exit 0
 
 agent_id="" cwd=""
-{ IFS= read -r agent_id; IFS= read -r cwd; } < <(jq -r '(.agent_id // ""), (.cwd // "")' 2>/dev/null)
+# tr -d '\r': a native Windows jq ends lines with CRLF, and read keeps the CR.
+{ IFS= read -r agent_id; IFS= read -r cwd; } < <(jq -r '(.agent_id // ""), (.cwd // "")' 2>/dev/null | tr -d '\r')
 [[ -z "$agent_id" ]] || exit 0   # subagent
 # Windows: Claude Code sends C:\... paths; Git Bash, git and jq all take C:/... too.
 cwd=${cwd//\\//}

@@ -355,7 +355,10 @@ check_air() {  # check_air <description> <expected output> <args...>
     local desc="$1" want="$2" got; shift 2
     got=$(cd "$on" && PATH="$fake:$PATH" "$air" "$@" | cut -f1,3,4 | tr '\t\n' ' ,')
     if [[ "$got" == "$want" ]]; then echo "ok    agents-in-repo: $desc"
-    else echo "FAIL  agents-in-repo: $desc (got '$got', want '$want')"; fails=$((fails + 1)); fi
+    else
+        echo "FAIL  agents-in-repo: $desc (got '$got', want '$want')"; fails=$((fails + 1))
+        (cd "$on" && PATH="$fake:$PATH" "$air" "$@" 2>&1 >/dev/null | sed 's/^/        /')
+    fi
 }
 check_air "all agents of the repo"  "integrator-on idle main,x working feat/x,"
 check_air "author of feat/x"        "x working feat/x,"           --branch feat/x
@@ -554,7 +557,8 @@ else
 fi
 # worktree-of.sh: the dispatch skill's branch -> worktree lookup (path with spaces).
 got=$(cd "$sp" && "$run" scripts/worktree-of.sh feat/y)
-if [[ "$got" == "$(cd "$work/with space/repo-y" && pwd -P)" || "$got" == "$work/with space/repo-y" ]]; then
+# -ef, not ==: on Windows git prints D:/... where Git Bash says /d/...
+if [[ -n "$got" && "$got" -ef "$work/with space/repo-y" ]]; then
     echo "ok    worktree-of: path of a branch's worktree"
 else
     echo "FAIL  worktree-of: got '$got'"; fails=$((fails + 1))
