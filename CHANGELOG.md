@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Skill `security-audit`: Cloudflare's security-audit skill
+  ([cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill),
+  MIT) vendored unchanged from commit `c1c8a8c`, with its `LICENSE`. Security guidance by
+  default; a full audit (reconnaissance, coverage-led hunting, adversarial validation,
+  `findings.json`, independent verification, reports) when asked for one. CI runs its
+  validators' tests.
 - SessionStart hook `session-start-integrator.sh`: an integrator session (`CLAUDE_ROLE=integrator`,
   inside herdr, in the main worktree of a repository that enables the plugin) takes its herdr
   name with `scripts/claim-integrator.sh` as it starts, relaunches and resumed sessions

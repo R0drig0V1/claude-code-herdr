@@ -119,6 +119,7 @@ the promotion procedure the project documents in `CLAUDE.md` or
 | Integrator | `scripts/integrator.sh` in a herdr pane of the main checkout, then `/multi-agent-herdr:integrate`; start agents with `/multi-agent-herdr:dispatch <type>/<name> <task>` |
 | Development agent | Started by `dispatch` inside its worktree: work, `/multi-agent-herdr:commit`, `/multi-agent-herdr:pr` |
 | Before a phase | `/multi-agent-herdr:improve-plan` (red-team review of `docs/phases/`) |
+| Security audit | `/multi-agent-herdr:security-audit`, or ask "security audit this codebase"; a full audit writes its reports outside the repository, in `~/security-audit-skill/<repo>/run-<N>` |
 
 The integrator's herdr agent is named after `integrator_name`. `scripts/integrator.sh` cannot
 name it (the herdr agent does not exist before `exec claude`), so the SessionStart hook
@@ -150,6 +151,7 @@ their settings and keep it; `/multi-agent-herdr:setup` offers to remove the key.
 | Skill | `document` | Brings docstrings, `docs/`, ADRs and `CLAUDE.md` up to date |
 | Skill | `improve-plan` | Up to 3 adversarial rounds against `docs/phases/` with `plan-adversary` |
 | Skill | `setup` | User only: checks and, with confirmation, installs herdr, its Claude integration and the project files; flags the old plugin |
+| Skill | `security-audit` | Cloudflare's [security-audit skill](https://github.com/cloudflare/security-audit-skill), vendored unchanged (MIT, its own `LICENSE`): security guidance by default, a six-phase audit with independent verification when asked for one |
 | Agent | `plan-adversary`, `code-reviewer` | Read-only plan red team; read-only bug and security reviewer |
 | Hook | `guard-main-worktree.sh`, `guard-main-bash.py` | Block Edit/Write, shell writes, mutating git, dependency changes and formatters in the main worktree, plus `gh pr merge`, pushes to `main`, and herdr commands that type into another pane (see Rules) |
 | Hook | `session-start-worktree.sh` | Tells sessions in the main worktree to route changes through the integrator's `dispatch` |
@@ -234,6 +236,22 @@ an `arguments` frontmatter field) in a skill's content with the skill's argument
 ([skills docs](https://code.claude.com/docs/en/skills#available-string-substitutions)). Shell
 and awk code in a SKILL.md therefore must not use them: put such code in `plugin/scripts/`
 (as `worktree-of.sh` does for `dispatch`) and call the script.
+
+`plugin/skills/security-audit/` is a verbatim copy of `skills/security-audit/` from
+[cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill) at
+commit `c1c8a8c` (c1c8a8c1471069fb0e188eeaff69b8e8db6564a8), plus its `LICENSE`. Do not edit it here. To update it, review the
+upstream diff since that commit, then:
+
+```bash
+git clone https://github.com/cloudflare/security-audit-skill /tmp/sas
+git -C /tmp/sas checkout <reviewed-commit>
+rm -rf plugin/skills/security-audit
+cp -R /tmp/sas/skills/security-audit plugin/skills/security-audit
+cp /tmp/sas/LICENSE plugin/skills/security-audit/LICENSE
+```
+
+and record the new commit here and in `CHANGELOG.md`. CI runs its two validators' tests
+(`node plugin/skills/security-audit/validate-*.test.cjs`).
 
 CI also runs CodeQL, OpenSSF Scorecard, zizmor, actionlint, lizard and gitleaks; what each one
 checks, its thresholds and how to run it locally are in

@@ -50,7 +50,8 @@ scripts/integrator.sh              # launch the integrator agent (inside herdr, 
   it). Reviews go to `docs/plan-reviews/`.
 - Skills: `/multi-agent-herdr:commit` (Conventional Commits, no emojis, checks first), `:pr`
   (opens the PR and announces it), `:document`, `:improve-plan`, `:dispatch` and `:integrate`
-  (integrator only), `:setup` (user only).
+  (integrator only), `:setup` (user only), `:security-audit` (Cloudflare's security review
+  and audit workflow).
 - Agents: `plan-adversary` (read-only critic of the plan), `code-reviewer` (read-only bug and
   security review; the integrator uses it on large diffs).
 
