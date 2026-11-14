@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Guideline "move work forward proactively", in the `dispatch` skill, the integrator prompt,
+  the template `CLAUDE.md` and the README. The integrator starts agents for every task that
+  can start now, without waiting to be asked, and always starts writing code early. It does
+  not force work: no agents for undecided designs, for collisions with branches in flight,
+  or for work a pending decision would make us amend.
 - Weekly `update-security-audit.yml` workflow and `.github/scripts/update-security-audit.sh`:
   move the vendored security-audit skill to the newest upstream commit at least 7 days old and
   open a pull request for review, Dependabot style. The pinned commit is in
