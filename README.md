@@ -34,6 +34,10 @@ integrator: /multi-agent-herdr:integrate (verify, merge or bounce, PR comment, h
 Requirements: herdr (built against 0.9.5) with Claude Code running inside it (`HERDR_ENV=1`),
 `git`, `bash`, `jq`, `python3` (3.9+) and the GitHub CLI `gh`.
 
+Platforms: macOS and Linux. On Windows, use [WSL](https://learn.microsoft.com/windows/wsl/install)
+(keep the repository inside the WSL file system, not under `/mnt/c`); native Windows is not
+supported.
+
 1. herdr, if missing: `curl -fsSL https://herdr.dev/install.sh | sh` (other methods:
    https://herdr.dev/tui/docs/install/), then `herdr integration install claude`.
 2. From inside the repository you want to set up (copies the project-owned files without
