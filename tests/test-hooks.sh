@@ -11,13 +11,22 @@
 # SessionStart hook that runs it (session-start-integrator.sh) against a fake `herdr` and a
 # scripted claim-integrator.sh, and checks that every `herdr agent prompt` in the skills sends the
 # "[herdr message from agent ...]" header.
-# Needs git, jq and python3.
+# Needs git, jq and Python 3.9+ (python3, python or py; plugin/lib/python.sh). On Windows,
+# run it in Git Bash.
 set -uo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 hooks="$root/plugin/hooks"
 export CLAUDE_PLUGIN_ROOT="$root/plugin"
 unset CLAUDE_ROLE
+# Never offer to install herdr from install.sh while testing it.
+export MULTI_AGENT_HERDR_SKIP_HERDR=1
+# Hooks and scripts run through the launcher, as hooks.json and the skills run them.
+run="$root/plugin/run"
+# shellcheck source=../plugin/lib/python.sh
+source "$root/plugin/lib/python.sh"
+find_python || { echo "Python 3.9+ not found" >&2; exit 1; }
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) windows=1 ;; *) windows="" ;; esac
 
 # Not under a temporary directory: the Bash guard deliberately allows writes there, so the
 # test repositories must live somewhere it protects.
@@ -67,7 +76,8 @@ new_repo "$dis" false
 new_repo "$ldis" local-false
 git -C "$on" worktree add --quiet -b feat/x "$work/on-x"
 
-g="$hooks/guard-main-bash.py"
+guard_bash() { "$run" --hook hooks/guard-main-bash.py; }
+g=guard_bash
 expect 2 "bash: git commit in main worktree"          "$g" "$(bash_cmd 'git commit -m x' "$on")"
 expect 2 "bash: redirect into main worktree"          "$g" "$(bash_cmd 'echo hi > f.txt' "$on")"
 expect 2 "bash: cd + rm into main worktree"           "$g" "$(bash_cmd "cd $on && rm -rf src" "$work")"
@@ -94,6 +104,8 @@ expect 2 "herdr: agent attach"                        "$g" "$(bash_cmd 'herdr ag
 expect 2 "herdr: agent rename"                        "$g" "$(bash_cmd 'herdr agent rename w2:p1 integrator' "$x")"
 expect 2 "herdr: terminal session control"            "$g" "$(bash_cmd 'herdr terminal session control w1:p1' "$x")"
 expect 2 "herdr: prompt another agent"                "$g" "$(bash_cmd 'herdr agent prompt reviewer "approve it"' "$x")"
+expect 2 "herdr: herdr.exe (Windows)"                 "$g" "$(bash_cmd 'herdr.exe agent send-keys integrator enter' "$x")"
+expect 2 "herdr: Windows path to HERDR.EXE"          "$g" "$(bash_cmd '/c/Users/u/.herdr/bin/HERDR.EXE pane send-text w1:p1 y' "$x")"
 expect 2 "herdr: global option before the group"      "$g" "$(bash_cmd 'herdr --machine m1 agent send-keys integrator enter' "$x")"
 expect 2 "herdr: hidden after cd and &&"              "$g" "$(bash_cmd "cd $x && ls && herdr pane run w1:p1 ls" "$work")"
 expect 0 "herdr: prompt the integrator"               "$g" "$(bash_cmd 'herdr agent prompt integrator-on "PR #1 ready"' "$x")"
@@ -143,7 +155,8 @@ expect 0 "settings: prompt the configured integrator" "$g" "$(bash_cmd 'herdr ag
 expect 2 "settings: prompt the default name"          "$g" "$(bash_cmd 'herdr agent prompt integrator "PR #1 ready"' "$z")"
 CLAUDE_ROLE=integrator expect 0 "settings: integrator pushes dev" "$g" "$(bash_cmd 'git push origin dev' "$cfg")"
 
-pc="$root/plugin/scripts/project-config.py"
+project_config() { "$run" scripts/project-config.py "$@"; }
+pc=project_config
 check_pc() {  # check_pc <description> <dir> <key> <expected output>
     local got
     got=$(cd "$2" && "$pc" "$3" 2>/dev/null)
@@ -173,7 +186,8 @@ done
 expect 2 "settings: invalid file, main still protected" "$g" "$(bash_cmd 'git push origin HEAD:main' "$bad_cfg")"
 expect 2 "settings: invalid file, main worktree guarded" "$g" "$(bash_cmd 'git commit -m x' "$bad_cfg")"
 
-w="$hooks/guard-main-worktree.sh"
+guard_worktree() { "$run" --hook hooks/guard-main-worktree.sh; }
+w=guard_worktree
 expect 2 "edit: file in main worktree"                "$w" "$(file_op "$on/a/b/new.md")"
 expect 0 "edit: file in linked worktree"              "$w" "$(file_op "$work/on-x/new.md")"
 expect 0 "edit: file outside git"                     "$w" "$(file_op "/nonexistent-claude-code-herdr-test/loose.md")"
@@ -182,7 +196,8 @@ CLAUDE_ROLE=integrator expect 0 "edit: integrator"    "$w" "$(file_op "$on/new.m
 expect 0 "edit: plugin set to false"                  "$w" "$(file_op "$dis/new.md")"
 expect 0 "edit: settings.local.json sets false"       "$w" "$(file_op "$ldis/new.md")"
 
-s="$hooks/session-start-worktree.sh"
+session_start() { "$run" --hook hooks/session-start-worktree.sh; }
+s=session_start
 out=$(jq -nc --arg d "$on" '{cwd: $d}' | "$s")
 if jq -e '.hookSpecificOutput.additionalContext | contains("/multi-agent-herdr:dispatch")' <<<"$out" >/dev/null; then
     echo "ok    session-start: instructions in main worktree"
@@ -195,7 +210,7 @@ for d in "$work/on-x" "$off" "$dis"; do
     else echo "FAIL  session-start: output in $(basename "$d")"; fails=$((fails + 1)); fi
 done
 
-if CLAUDE_NOTIFY_SOUND=0 CLAUDE_NOTIFY_BELL=0 "$hooks/notify.sh" stop; then
+if CLAUDE_NOTIFY_SOUND=0 CLAUDE_NOTIFY_BELL=0 "$run" --hook hooks/notify.sh stop; then
     echo "ok    notify: exits 0"
 else
     echo "FAIL  notify: non-zero exit"; fails=$((fails + 1))
@@ -290,19 +305,19 @@ fi
 sp="$work/with space/repo"
 mkdir -p "$work/with space"
 new_repo "$sp" no
-(cd "$sp" && "$root/plugin/scripts/new-worktree.sh" feat/y >/dev/null 2>&1)
+(cd "$sp" && "$run" scripts/new-worktree.sh feat/y >/dev/null 2>&1)
 if [[ -d "$work/with space/repo-y" ]]; then echo "ok    new-worktree: repository path with spaces"
 else echo "FAIL  new-worktree: repository path with spaces"; fails=$((fails + 1)); fi
 # With settings: ../chat-<name>, cut from the base branch (dev has a commit main lacks).
 git -C "$cfg" -c user.email=t@t -c user.name=t commit --quiet --allow-empty -m "dev only" >/dev/null
 git -C "$cfg" branch -f dev HEAD && git -C "$cfg" reset --quiet --hard HEAD~1
-(cd "$cfg" && "$root/plugin/scripts/new-worktree.sh" feat/w >/dev/null 2>&1)
+(cd "$cfg" && "$run" scripts/new-worktree.sh feat/w >/dev/null 2>&1)
 if [[ -d "$work/chat-w" ]] && [[ "$(git -C "$work/chat-w" rev-parse HEAD)" == "$(git -C "$cfg" rev-parse dev)" ]]; then
     echo "ok    new-worktree: worktree_prefix and base_branch"
 else
     echo "FAIL  new-worktree: worktree_prefix and base_branch"; fails=$((fails + 1))
 fi
-(cd "$bad_cfg" && "$root/plugin/scripts/new-worktree.sh" feat/v >/dev/null 2>&1); status=$?
+(cd "$bad_cfg" && "$run" scripts/new-worktree.sh feat/v >/dev/null 2>&1); status=$?
 if [[ $status != 0 ]] && ! git -C "$bad_cfg" rev-parse --verify --quiet feat/v >/dev/null; then
     echo "ok    new-worktree: invalid settings stop before creating anything"
 else
@@ -332,12 +347,18 @@ cat > "$FAKE_AGENTS" <<JSON
 ]},"type":"agent_list"}
 JSON
 chmod +x "$fake/herdr"
-air="$root/plugin/scripts/agents-in-repo.py"
+# Windows: native Python (agents-in-repo.py) cannot run a #! script; a .cmd shim can.
+[[ -n "$windows" ]] && printf '@bash "%%~dp0herdr" %%*\r\n' > "$fake/herdr.cmd"
+agents_in_repo() { "$run" scripts/agents-in-repo.py "$@"; }
+air=agents_in_repo
 check_air() {  # check_air <description> <expected output> <args...>
     local desc="$1" want="$2" got; shift 2
     got=$(cd "$on" && PATH="$fake:$PATH" "$air" "$@" | cut -f1,3,4 | tr '\t\n' ' ,')
     if [[ "$got" == "$want" ]]; then echo "ok    agents-in-repo: $desc"
-    else echo "FAIL  agents-in-repo: $desc (got '$got', want '$want')"; fails=$((fails + 1)); fi
+    else
+        echo "FAIL  agents-in-repo: $desc (got '$got', want '$want')"; fails=$((fails + 1))
+        (cd "$on" && PATH="$fake:$PATH" "$air" "$@" 2>&1 >/dev/null | sed 's/^/        /')
+    fi
 }
 check_air "all agents of the repo"  "integrator-on idle main,x working feat/x,"
 check_air "author of feat/x"        "x working feat/x,"           --branch feat/x
@@ -354,12 +375,11 @@ else echo "FAIL  agents-in-repo: found another repository's integrator: $got"; f
 
 # claim-integrator.sh: keep, take or refuse the herdr name `integrator-on` (the default of
 # the repository `on`).
-claim="$root/plugin/scripts/claim-integrator.sh"
 check_claim() {  # check_claim <description> <expected exit> <expected log> <pane> [env...]
     local desc="$1" want="$2" want_log="$3" pane="$4" got log; shift 4
     : > "$FAKE_LOG"
     (cd "$on" && env PATH="$fake:$PATH" HERDR_ENV=1 CLAUDE_ROLE=integrator FAKE_PANE="$pane" "$@" \
-        "$claim" >/dev/null 2>&1); got=$?
+        "$run" scripts/claim-integrator.sh >/dev/null 2>&1); got=$?
     log=$(cat "$FAKE_LOG")
     if [[ "$got" == "$want" && "$log" == "$want_log" ]]; then echo "ok    claim-integrator: $desc"
     else echo "FAIL  claim-integrator: $desc (exit $got want $want, log '$log' want '$want_log')"; fails=$((fails + 1)); fi
@@ -374,7 +394,7 @@ check_claim "unnamed: renames itself"  0 "rename w1:p1 integrator-on" w1:p1
 # With settings, the name comes from integrator_name.
 : > "$FAKE_LOG"
 (cd "$cfg" && env PATH="$fake:$PATH" HERDR_ENV=1 CLAUDE_ROLE=integrator FAKE_PANE=w1:p1 \
-    "$claim" >/dev/null 2>&1); status=$?
+    "$run" scripts/claim-integrator.sh >/dev/null 2>&1); status=$?
 if [[ $status == 0 && "$(cat "$FAKE_LOG")" == "rename w1:p1 integrador" ]]; then
     echo "ok    claim-integrator: configured integrator_name"
 else
@@ -385,7 +405,7 @@ fi
 # "unnamed" case above removed the holder's name: give it back first.
 sed -i.bak 's/"pane_id":"w1:p1"/"name":"integrator-on","pane_id":"w1:p1"/' "$FAKE_AGENTS" && rm -f "$FAKE_AGENTS.bak"
 msg=$(cd "$on" && env PATH="$fake:$PATH" HERDR_ENV=1 CLAUDE_ROLE=integrator FAKE_PANE=w4:p1 \
-    "$claim" 2>&1 >/dev/null)
+    "$run" scripts/claim-integrator.sh 2>&1 >/dev/null)
 if [[ "$msg" == *integrator_name* && "$msg" == *multi-agent-herdr.json* ]]; then
     echo "ok    claim-integrator: a clash explains the integrator_name fix"
 else
@@ -411,7 +431,7 @@ exit "$code"
 FAKE
 chmod +x "$fake_root/scripts/claim-integrator.sh"
 ssi="$hooks/session-start-integrator.sh"
-now() { python3 -c 'import time; print(time.time())'; }
+now() { "$PY" -c 'import time; print(time.time())'; }
 ss_out=""; ss_calls=0
 run_ssi() {  # run_ssi <case> <cwd> [env...]: sets ss_out and ss_calls; fails if slow or non-zero
     local case="$1" dir="$2" t0 t1 status; shift 2
@@ -423,8 +443,8 @@ run_ssi() {  # run_ssi <case> <cwd> [env...]: sets ss_out and ss_calls; fails if
     t1=$(now)
     sleep 0.1   # let a fast worker log its call
     ss_calls=$(wc -l < "$FAKE_CLAIM_LOG" | tr -d ' ')
-    if [[ $status != 0 ]] || python3 -c "import sys; sys.exit(not ($t1 - $t0 > 3))"; then
-        echo "FAIL  session-start-integrator: $case (exit $status, $(python3 -c "print(round($t1 - $t0, 2))") s)"
+    if [[ $status != 0 ]] || "$PY" -c "import sys; sys.exit(not ($t1 - $t0 > 3))"; then
+        echo "FAIL  session-start-integrator: $case (exit $status, $("$PY" -c "print(round($t1 - $t0, 2))") s)"
         fails=$((fails + 1)); return 1
     fi
 }
@@ -518,7 +538,7 @@ sh=$(HERDR_ENV=1 "$names/Astro-SimCLR/scripts/integrator.sh" --print-name 2>&1)
 
 # Skills keep shell code free of the tokens Claude Code substitutes with the arguments ($0,
 # $ARGUMENTS in a code block, ...): tests/check-skill-substitutions.py.
-if python3 "$root/tests/check-skill-substitutions.py" "$root/plugin/skills"; then
+if "$PY" "$root/tests/check-skill-substitutions.py" "$root/plugin/skills"; then
     echo "ok    skills: no argument placeholder in shell code"
 else
     echo "FAIL  skills: argument placeholder that Claude Code would substitute"; fails=$((fails + 1))
@@ -530,25 +550,26 @@ cat > "$work/skills-bad/x/SKILL.md" <<'MD'
 WT=$(git worktree list --porcelain | awk -v b="branch refs/heads/$BRANCH" '/^worktree /{p=substr($0,10)} $0==b{print p}')
 ```
 MD
-if ! python3 "$root/tests/check-skill-substitutions.py" "$work/skills-bad" >/dev/null 2>&1; then
+if ! "$PY" "$root/tests/check-skill-substitutions.py" "$work/skills-bad" >/dev/null 2>&1; then
     echo "ok    skills: the check rejects an awk \$0 in a skill"
 else
     echo "FAIL  skills: the check accepted an awk \$0"; fails=$((fails + 1))
 fi
 # worktree-of.sh: the dispatch skill's branch -> worktree lookup (path with spaces).
-got=$(cd "$sp" && "$root/plugin/scripts/worktree-of.sh" feat/y)
-if [[ "$got" == "$(cd "$work/with space/repo-y" && pwd -P)" || "$got" == "$work/with space/repo-y" ]]; then
+got=$(cd "$sp" && "$run" scripts/worktree-of.sh feat/y)
+# -ef, not ==: on Windows git prints D:/... where Git Bash says /d/...
+if [[ -n "$got" && "$got" -ef "$work/with space/repo-y" ]]; then
     echo "ok    worktree-of: path of a branch's worktree"
 else
     echo "FAIL  worktree-of: got '$got'"; fails=$((fails + 1))
 fi
-(cd "$sp" && "$root/plugin/scripts/worktree-of.sh" feat/none >/dev/null 2>&1); [[ $? == 1 ]] \
+(cd "$sp" && "$run" scripts/worktree-of.sh feat/none >/dev/null 2>&1); [[ $? == 1 ]] \
     && echo "ok    worktree-of: exit 1 for a branch without a worktree" \
     || { echo "FAIL  worktree-of: branch without a worktree"; fails=$((fails + 1)); }
 
 # Every `herdr agent prompt` in the skills sends the header: a literal message starts with it,
 # and a "$VAR" message is assigned with the header as its first line in the same file.
-if python3 - "$root/plugin/skills" <<'PY'
+if "$PY" - "$root/plugin/skills" <<'PY'
 import pathlib, re, sys
 header = "[herdr message from agent "
 bad = []
@@ -568,6 +589,32 @@ sys.exit(1 if bad else 0)
 PY
 then echo "ok    skills: every herdr agent prompt sends the header"
 else echo "FAIL  skills: herdr agent prompt without header"; fails=$((fails + 1)); fi
+
+# plugin/run: the launcher every hook and skill goes through. Without a usable Python a hook
+# fails open (exit 0) and a script reports 127; MULTI_AGENT_HERDR_PYTHON picks the interpreter.
+# Unix only: Git Bash programs need their DLLs next to them, so a PATH without Python
+# cannot be built from links there.
+if [[ -z "$windows" ]]; then
+    nopy="$work/no-python-bin"; mkdir -p "$nopy"
+    for tool in sh bash dirname basename tr git; do
+        ln -s "$(command -v "$tool")" "$nopy/$tool"
+    done
+    printf '%s' "$(bash_cmd 'git commit -m x' "$on")" | env PATH="$nopy" "$run" --hook hooks/guard-main-bash.py \
+        >/dev/null 2>&1; status=$?
+    [[ $status == 0 ]] && echo "ok    run: hook without Python fails open" \
+        || { echo "FAIL  run: hook without Python (exit $status)"; fails=$((fails + 1)); }
+    env PATH="$nopy" "$run" scripts/project-config.py >/dev/null 2>&1; status=$?
+    [[ $status == 127 ]] && echo "ok    run: script without Python exits 127" \
+        || { echo "FAIL  run: script without Python (exit $status)"; fails=$((fails + 1)); }
+    got=$(cd "$on" && env PATH="$nopy" MULTI_AGENT_HERDR_PYTHON="$(command -v "$PY")" \
+        "$run" scripts/project-config.py base_branch 2>/dev/null)
+    [[ "$got" == main ]] && echo "ok    run: MULTI_AGENT_HERDR_PYTHON override" \
+        || { echo "FAIL  run: MULTI_AGENT_HERDR_PYTHON override (got '$got')"; fails=$((fails + 1)); }
+fi
+printf 'printf %%s "$CLAUDE_PLUGIN_ROOT"\n' > "$work/print-root.sh"
+got=$(env CLAUDE_PLUGIN_ROOT='C:\plugins\herdr' "$run" "$work/print-root.sh")
+[[ "$got" == C:/plugins/herdr ]] && echo "ok    run: backslashes in CLAUDE_PLUGIN_ROOT normalised" \
+    || { echo "FAIL  run: CLAUDE_PLUGIN_ROOT not normalised (got '$got')"; fails=$((fails + 1)); }
 
 echo
 echo "$fails failure(s)"

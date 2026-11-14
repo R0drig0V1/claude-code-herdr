@@ -3,8 +3,8 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-start-worktree.sh" },
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-start-integrator.sh", "timeout": 10 }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/run\" --hook hooks/session-start-worktree.sh" },
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/run\" --hook hooks/session-start-integrator.sh", "timeout": 10 }
         ]
       }
     ],
@@ -12,27 +12,27 @@
       {
         "matcher": "Edit|Write|NotebookEdit",
         "hooks": [
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/guard-main-worktree.sh" }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/run\" --hook hooks/guard-main-worktree.sh" }
         ]
       },
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/guard-main-bash.py" }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/run\" --hook hooks/guard-main-bash.py" }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/notify.sh stop", "async": true }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/run\" --hook hooks/notify.sh stop", "async": true }
         ]
       }
     ],
     "Notification": [
       {
         "hooks": [
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/notify.sh attention", "async": true }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/run\" --hook hooks/notify.sh attention", "async": true }
         ]
       }
     ]

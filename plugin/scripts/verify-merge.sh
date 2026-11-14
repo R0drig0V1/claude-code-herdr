@@ -3,7 +3,7 @@
 # the integrator commits the merge. Exit code 0 means every check passed; anything else means
 # do not merge. Gate the commit on the exit code, never on grepped output:
 #
-#   if "$CLAUDE_PLUGIN_ROOT"/scripts/verify-merge.sh; then git commit ...; else git merge --abort; fi
+#   if "$CLAUDE_PLUGIN_ROOT"/run scripts/verify-merge.sh; then git commit ...; else git merge --abort; fi
 #
 # Usage:
 #   verify-merge.sh               full verification
@@ -25,6 +25,7 @@
 # Only for the integrator.
 set -euo pipefail
 
+plugin_dir=$(cd "$(dirname "$0")" && pwd)   # before the cd below: $0 may be relative
 repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
 cd "$repo_root"
 [[ "$(git rev-parse --absolute-git-dir)" == "$repo_root/.git" ]] \
@@ -57,7 +58,9 @@ trap report_failure EXIT
 failed_step="reset verification state"; reset_state
 if [[ -x scripts/worktree-setup.sh ]]; then
     failed_step="worktree setup"; step "$failed_step"
-    scripts/worktree-setup.sh "$("$(dirname "$0")/project-config.py" --root "$repo_root" base_branch)"
+    # shellcheck source=../lib/python.sh
+    source "$plugin_dir/../lib/python.sh"
+    scripts/worktree-setup.sh "$(py_run "$plugin_dir/project-config.py" --root "$repo_root" base_branch)"
 fi
 failed_step="checks"; step "$failed_step"
 if [[ -x scripts/check.sh ]]; then

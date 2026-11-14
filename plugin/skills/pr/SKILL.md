@@ -14,7 +14,7 @@ syntax from `herdr --skill` and `herdr agent|pane` (herdr 0.9.5).
 ## 0. Project settings
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/project-config.py"; echo "exit=$?"
+"${CLAUDE_PLUGIN_ROOT}/run" scripts/project-config.py; echo "exit=$?"
 ```
 
 It prints the project's settings (`.claude/multi-agent-herdr.json`, defaults when absent).
@@ -107,7 +107,7 @@ repository, so an agent named `<integrator>` may belong to another repository. C
 sits in this repository's main worktree:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/agents-in-repo.py" --name <integrator> --main-worktree; echo "exit=$?"
+"${CLAUDE_PLUGIN_ROOT}/run" scripts/agents-in-repo.py --name <integrator> --main-worktree; echo "exit=$?"
 ```
 
 - One line, status not `blocked`: send the announcement (below).

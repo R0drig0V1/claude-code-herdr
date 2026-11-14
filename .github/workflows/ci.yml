@@ -20,8 +20,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # windows-latest: Git Bash, native Python, and the runner's default core.autocrlf=true,
+        # so it also catches scripts checked out with CRLF line endings (.gitattributes).
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,18 +41,24 @@ jobs:
 
       - name: Shell syntax
         run: |
-          for f in install.sh tests/*.sh plugin/hooks/*.sh plugin/scripts/*.sh template/scripts/*.sh .github/scripts/*.sh; do
+          for f in install.sh tests/*.sh plugin/hooks/*.sh plugin/scripts/*.sh plugin/run plugin/lib/python.sh template/scripts/*.sh .github/scripts/*.sh; do
             bash -n "$f" && echo "ok $f"
           done
 
       - name: ShellCheck
         if: runner.os == 'Linux'
-        run: shellcheck -S warning install.sh tests/*.sh plugin/hooks/*.sh plugin/scripts/*.sh template/scripts/*.sh .github/scripts/*.sh
+        run: shellcheck -S warning install.sh tests/*.sh plugin/hooks/*.sh plugin/scripts/*.sh plugin/run plugin/lib/python.sh template/scripts/*.sh .github/scripts/*.sh
 
       - name: Python compiles
-        run: python3 -m py_compile plugin/hooks/guard-main-bash.py plugin/scripts/agents-in-repo.py plugin/scripts/project-config.py
+        run: |
+          . plugin/lib/python.sh && find_python
+          "$PY" -m py_compile plugin/hooks/guard-main-bash.py plugin/scripts/agents-in-repo.py plugin/scripts/project-config.py
 
+      # Not on Windows: the vendored validators' CLI requires O_NOFOLLOW / nonblocking reads
+      # ("OS no-follow and nonblocking input protection is unavailable"), Unix only by design
+      # upstream; the copy is kept verbatim (README, Development).
       - name: Vendored security-audit validators
+        if: runner.os != 'Windows'
         run: |
           node plugin/skills/security-audit/validate-findings.test.cjs
           node plugin/skills/security-audit/validate-coverage-ledger.test.cjs
@@ -57,3 +68,19 @@ jobs:
           git config --global user.email ci@example.com
           git config --global user.name ci
           tests/test-hooks.sh
+
+      # Manual runs only: it downloads herdr from herdr.dev, an external dependency not pinned
+      # by sha256, so it stays out of every pull request's required checks.
+      - name: install.ps1 smoke test (installs herdr.exe)
+        if: runner.os == 'Windows' && github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $repo = Join-Path $env:RUNNER_TEMP 'smoke-repo'
+          git init -q $repo
+          Push-Location $repo
+          & "$env:GITHUB_WORKSPACE\install.ps1" -Yes
+          Get-Content .gitattributes
+          if (-not (Test-Path scripts/integrator.sh)) { throw 'template not copied' }
+          herdr --version
+          if ($LASTEXITCODE -ne 0) { throw 'herdr not on PATH after install.ps1' }
+          Pop-Location
