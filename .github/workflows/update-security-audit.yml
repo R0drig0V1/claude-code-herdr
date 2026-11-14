@@ -1,0 +1,77 @@
+# Keeps the vendored security-audit skill (plugin/skills/security-audit/) current, the way
+# Dependabot does for dependencies: every week, .github/scripts/update-security-audit.sh moves
+# it to the newest cloudflare/security-audit-skill commit that is at least 7 days old, and this
+# workflow opens a pull request with the change for a human to review and merge.
+#
+# A pull request opened with GITHUB_TOKEN triggers no workflows, so the job starts
+# `ci.yml` and `quality.yml` on the update branch itself (workflow_dispatch is the exception GitHub
+# allows); the runs attach to the branch's head commit and show up as the pull request's checks.
+# Needs "Allow GitHub Actions to create and approve pull requests" (Settings > Actions).
+name: Update security-audit skill
+
+on:
+  schedule:
+    - cron: "23 6 * * 1" # Mondays 06:23 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the update branch
+      pull-requests: write # open the pull request
+      actions: write # start CI on the update branch
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Update the vendored copy
+        id: update
+        run: .github/scripts/update-security-audit.sh
+
+      - name: Validator tests
+        if: steps.update.outputs.new != steps.update.outputs.old
+        run: |
+          node plugin/skills/security-audit/validate-findings.test.cjs
+          node plugin/skills/security-audit/validate-coverage-ledger.test.cjs
+
+      - name: Open the pull request
+        if: steps.update.outputs.new != steps.update.outputs.old
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLD: ${{ steps.update.outputs.old }}
+          NEW: ${{ steps.update.outputs.new }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          branch="chore/security-audit-skill-${NEW:0:7}"
+          if gh api --silent "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" 2>/dev/null; then
+            echo "$branch already exists; nothing to do"
+            exit 0
+          fi
+          compare="https://github.com/cloudflare/security-audit-skill/compare/$OLD...$NEW"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add -A plugin/skills/security-audit .github/security-audit-skill.ref
+          git commit -q -m "chore(deps): update security-audit skill to ${NEW:0:7}" -m "Upstream changes: $compare"
+          gh auth setup-git
+          git push origin "$branch"
+          gh pr create --base "$BASE" --head "$branch" \
+            --title "chore(deps): update security-audit skill to ${NEW:0:7}" \
+            --body "Updates the vendored [security-audit skill](https://github.com/cloudflare/security-audit-skill) from \`${OLD:0:7}\` to \`${NEW:0:7}\`, the newest upstream commit at least 7 days old.
+
+          **Review the upstream diff before merging:** $compare. The skill's text becomes instructions for every agent that loads it.
+
+          The validator tests passed in the update job; CI runs on this branch through workflow_dispatch.
+
+          Opened by \`.github/workflows/update-security-audit.yml\`."
+          for workflow in ci.yml quality.yml; do
+            gh workflow run "$workflow" --ref "$branch"
+          done
