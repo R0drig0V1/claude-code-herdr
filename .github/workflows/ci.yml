@@ -54,7 +54,11 @@ jobs:
           . plugin/lib/python.sh && find_python
           "$PY" -m py_compile plugin/hooks/guard-main-bash.py plugin/scripts/agents-in-repo.py plugin/scripts/project-config.py
 
+      # Not on Windows: the vendored validators' CLI requires O_NOFOLLOW / nonblocking reads
+      # ("OS no-follow and nonblocking input protection is unavailable"), Unix only by design
+      # upstream; the copy is kept verbatim (README, Development).
       - name: Vendored security-audit validators
+        if: runner.os != 'Windows'
         run: |
           node plugin/skills/security-audit/validate-findings.test.cjs
           node plugin/skills/security-audit/validate-coverage-ledger.test.cjs
