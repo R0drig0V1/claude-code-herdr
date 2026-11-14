@@ -23,6 +23,7 @@ apply. Checks run on GitHub, not on contributors' machines.
 | `quality.yml` | zizmor (`advanced-security: false`, default persona) | workflow injection, excessive permissions, unpinned actions, persisted credentials, cache poisoning, impostor commits | yes |
 | `quality.yml` | actionlint | workflow syntax, expression and shell (via ShellCheck) errors | yes |
 | `quality.yml` | gitleaks over the full git history | committed secrets, including generic ones GitHub's provider patterns miss | yes |
+| `update-security-audit.yml` | weekly: newest cloudflare/security-audit-skill commit >= 7 days old into `plugin/skills/security-audit/`, validator tests | a stale vendored skill; opens a PR for review, never merges | no, opens a PR |
 | `codeql.yml` | CodeQL `python` and `actions`, default query suite, weekly too | dataflow vulnerabilities in the Python hooks; workflow injection and permission issues | reports alerts (Security tab, PR annotations) |
 | `scorecard.yml` | OpenSSF Scorecard on main, weekly | supply-chain posture: pinning, token permissions, branch protection, policy | no, score only |
 | `dependabot.yml` | version updates for `github-actions` and `uv` | outdated pinned actions and linters (7-day cooldown) | opens PRs |

@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Weekly `update-security-audit.yml` workflow and `.github/scripts/update-security-audit.sh`:
+  move the vendored security-audit skill to the newest upstream commit at least 7 days old and
+  open a pull request for review, Dependabot style. The pinned commit is in
+  `.github/security-audit-skill.ref`. CI accepts `workflow_dispatch` so the update job can
+  start it on its branch (pull requests opened with `GITHUB_TOKEN` trigger no workflows).
 - Skill `security-audit`: Cloudflare's security-audit skill
   ([cloudflare/security-audit-skill](https://github.com/cloudflare/security-audit-skill),
   MIT) vendored unchanged from commit `c1c8a8c`, with its `LICENSE`. Security guidance by

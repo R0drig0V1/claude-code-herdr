@@ -5,6 +5,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch: # started on update branches by update-security-audit.yml
 
 # Least privilege (docs/code-quality.md): the jobs only read the repository.
 permissions:
@@ -35,13 +36,13 @@ jobs:
 
       - name: Shell syntax
         run: |
-          for f in install.sh tests/*.sh plugin/hooks/*.sh plugin/scripts/*.sh template/scripts/*.sh; do
+          for f in install.sh tests/*.sh plugin/hooks/*.sh plugin/scripts/*.sh template/scripts/*.sh .github/scripts/*.sh; do
             bash -n "$f" && echo "ok $f"
           done
 
       - name: ShellCheck
         if: runner.os == 'Linux'
-        run: shellcheck -S warning install.sh tests/*.sh plugin/hooks/*.sh plugin/scripts/*.sh template/scripts/*.sh
+        run: shellcheck -S warning install.sh tests/*.sh plugin/hooks/*.sh plugin/scripts/*.sh template/scripts/*.sh .github/scripts/*.sh
 
       - name: Python compiles
         run: python3 -m py_compile plugin/hooks/guard-main-bash.py plugin/scripts/agents-in-repo.py plugin/scripts/project-config.py
