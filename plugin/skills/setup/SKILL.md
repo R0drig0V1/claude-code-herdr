@@ -7,7 +7,7 @@ disable-model-invocation: true
 <!--
 setup skill of the multi-agent-herdr plugin. User-invoked only (disable-model-invocation) and
 never run from a hook. It checks first and changes anything only after an explicit
-confirmation for each step. Install command from https://herdr.dev/agent-guide.md;
+confirmation for each step. Install commands from https://herdr.dev/docs/install/;
 integration commands from `herdr integration` (herdr 0.9.5).
 -->
 
@@ -15,22 +15,39 @@ integration commands from `herdr integration` (herdr 0.9.5).
 
 Check everything first, report, then ask before each change. Any "no" skips that step.
 
-## 1. herdr binary
+## 1. Platform and herdr binary
 
 ```bash
+uname -s              # Darwin: macOS; Linux (also WSL); MINGW*/MSYS*: Windows through Git Bash
 command -v herdr && herdr --version
 herdr status          # client vs running server version, read-only
 ```
 
-If `herdr` is missing, show the official installer and run it only after the user confirms
-(offer to print the script for review first: `curl -fsSL https://herdr.dev/install.sh`):
+On Windows, the plugin's hooks and scripts run in Git Bash (Git for Windows), the shell Claude
+Code uses there, and need Python 3.9+ as `python3`, `python` or `py`
+(`"${CLAUDE_PLUGIN_ROOT}/run" scripts/project-config.py` fails with exit 127 without one)
+and `jq` (`winget install jqlang.jq`). Report what is missing; do not install those yourself.
+
+If `herdr` is missing, show the official installer for the platform and run it only after the
+user confirms (offer to print the script for review first):
 
 ```bash
+# macOS and Linux (review: curl -fsSL https://herdr.dev/install.sh)
 curl -fsSL https://herdr.dev/install.sh | sh
+# Windows, from Git Bash (review: curl -fsSL https://herdr.dev/install.ps1)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://herdr.dev/install.ps1 | iex"
 ```
 
-Homebrew, mise, Nix and manual downloads: https://herdr.dev/tui/docs/install/. Never stop
-or restart a running herdr server (`herdr server stop`) as part of setup.
+If Windows endpoint security blocks the PowerShell one-liner, herdr's fallback is
+`curl.exe -fsSLo install.cmd https://herdr.dev/install.cmd && install.cmd && del install.cmd`
+(from cmd.exe). Homebrew (`brew install herdr`), mise, Nix and manual downloads:
+https://herdr.dev/docs/install/. The installer may put herdr in a directory this shell does not
+have on PATH yet: then ask the user to restart the terminal (and Claude Code) before step 2.
+Never stop or restart a running herdr server (`herdr server stop`) as part of setup.
+
+Native Windows herdr works but is younger than the Unix build: `herdr terminal attach` and live
+server handoff are not supported there (https://herdr.dev/docs/windows-beta/). Mention it once
+when the platform is Windows; WSL runs the Linux build.
 
 ## 2. Claude integration
 
@@ -55,7 +72,7 @@ for f in "$root"/.claude/settings.json "$root"/.claude/settings.local.json; do
     | select(.key | test("^multi-agent(-herdr)?@")) | "\($f): \(.key) = \(.value)"' "$f"
 done
 ls "$root"/scripts/check.sh "$root"/scripts/integrator.sh "$root"/.claude/prompts/integrator.md
-"${CLAUDE_PLUGIN_ROOT}/scripts/project-config.py" --root "$root"; echo "exit=$?"
+"${CLAUDE_PLUGIN_ROOT}/run" scripts/project-config.py --root "$root"; echo "exit=$?"
 ```
 
 - The settings (`.claude/multi-agent-herdr.json`): report `base_branch` and

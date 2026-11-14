@@ -11,7 +11,8 @@
 #   `powershell.exe`. Platforms with none of these stay silent.
 # - Bell: hook children run without a controlling tty, so walk up the parent chain to the
 #   first ancestor that has one (the claude process attached to the tab) and write BEL to it.
-#   Terminal.app, iTerm2 and most Linux terminals then badge or flash that tab.
+#   Terminal.app, iTerm2 and most Linux terminals then badge or flash that tab. Skipped on
+#   native Windows (Git Bash), which has no such tty device.
 # - Opt out with CLAUDE_NOTIFY_SOUND=0 and/or CLAUDE_NOTIFY_BELL=0.
 #
 # Always exits 0 and never waits for the sound: a notification must not affect the session.
@@ -56,6 +57,8 @@ play() {
 
 bell() {
     [ "${CLAUDE_NOTIFY_BELL:-1}" = "0" ] && return
+    # Git Bash / MSYS `ps` has no -o and no tty device to write to: nothing to ring there.
+    case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return ;; esac
     pid=$$
     while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
         t=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')

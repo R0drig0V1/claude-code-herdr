@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -87,7 +88,9 @@ def main() -> int:
         return 1
 
     try:
-        proc = subprocess.run(["herdr", "agent", "list"], capture_output=True, text=True)
+        # shutil.which: on Windows it also finds herdr through PATHEXT (herdr.exe, a .cmd shim).
+        herdr = shutil.which("herdr") or "herdr"
+        proc = subprocess.run([herdr, "agent", "list"], capture_output=True, text=True)
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr.strip() or f"exit {proc.returncode}")
         agents = json.loads(proc.stdout)["result"]["agents"]

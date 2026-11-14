@@ -16,7 +16,7 @@ apply. Checks run on GitHub, not on contributors' machines.
 
 | Workflow | Job / step | Catches | Fails the PR? |
 |---|---|---|---|
-| `ci.yml` (existing) | jq, `bash -n`, ShellCheck `-S warning`, `py_compile`, `tests/test-hooks.sh` on Ubuntu and macOS | invalid manifests, shell bugs, broken hooks/installer | yes |
+| `ci.yml` (existing) | jq, `bash -n`, ShellCheck `-S warning`, `py_compile`, `tests/test-hooks.sh` on Ubuntu, macOS and Windows (Git Bash, `core.autocrlf=true`) | invalid manifests, shell bugs, broken hooks/installer | yes |
 | `quality.yml` | `ruff check` (rules `E,F,W,B,UP,S,C90`) | Python bugs, Bandit's security rules (`S`), syntax newer than 3.9 (`UP` with `target-version = "py39"`), complexity > 15 | yes |
 | `quality.yml` | `ruff format --check` | unformatted Python | yes |
 | `quality.yml` | lizard ceilings | growth of the functions exempted from the complexity rule | yes |
@@ -32,6 +32,18 @@ Every workflow declares `permissions:` (`{}` at the top, the minimum per job), p
 action by full commit SHA with its version as a comment, and checks out with
 `persist-credentials: false`. Binaries that are downloaded (actionlint, gitleaks) are checked
 against a sha256 in the workflow.
+
+## Cross-platform rules
+
+The plugin runs on macOS, Linux and Windows (Git Bash), and CI tests all three:
+
+- Hooks and skills call plugin code through `"${CLAUDE_PLUGIN_ROOT}/run" <path>`, never by
+  executing a script path: Windows has no exec bit and often no `python3`.
+- Shell scripts call Python through `py_run` from `plugin/lib/python.sh`, not `python3`.
+- Python resolves external programs with `shutil.which` (it honours `PATHEXT` on Windows) and
+  compares paths after `native()` / `os.path.normcase` where Windows paths can appear.
+- No platform-only commands without a fallback (`sysctl`, `vm_stat`, `afplay`, GNU `sed -i`
+  without a suffix); scripts stay LF (`.gitattributes`).
 
 ## Thresholds
 
