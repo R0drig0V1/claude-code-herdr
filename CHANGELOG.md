@@ -61,6 +61,15 @@ All notable changes to this project are documented here. The format follows
   `template/scripts/integrator.sh` and `claim-integrator.sh` document the hook.
 
 ### Changed
+- `install.sh` is now the whole per-repository setup, one command instead of five. It installs
+  the plugin with the `claude` CLI when it is not installed yet (`--no-plugin` skips it),
+  checks `jq`, `python3`, `gh`, herdr and herdr's Claude integration, asks before running
+  `herdr integration install claude`, and ends with a report and only the steps that are
+  left. `/multi-agent-herdr:setup` is no longer a required step. herdr itself is never
+  installed by it.
+- `install.sh` refuses to write through a symbolic link or outside the repository, stops
+  before copying when `.claude/settings.json` is valid JSON but not an object, and
+  `scripts/integrator.sh` says what is missing before launching.
 - The workflow rules (documentation, ADRs, `scripts/check.sh`, plan, integrator and
   development agents) moved out of the `CLAUDE.md` template into the plugin
   (`plugin/context/workflow.md`). `install.sh` copies them to

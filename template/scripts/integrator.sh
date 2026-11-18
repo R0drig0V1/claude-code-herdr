@@ -47,5 +47,16 @@ if [[ "${1:-}" == --print-name ]]; then  # used by the plugin's tests; launches 
     echo "$name"
     exit 0
 fi
+# Say what is missing before launching, instead of failing later inside the session.
+prompt_file="$repo_root/.claude/prompts/integrator.md"
+[[ -f "$prompt_file" ]] \
+    || { echo "missing .claude/prompts/integrator.md: rerun the multi-agent-herdr installer" >&2; exit 1; }
+command -v claude >/dev/null 2>&1 || { echo "claude is not on PATH" >&2; exit 1; }
+if ! grep -qs '"multi-agent-herdr@claude-code-herdr"[[:space:]]*:[[:space:]]*true' \
+    .claude/settings.local.json .claude/settings.json; then
+    echo "warning: .claude/settings.json does not enable multi-agent-herdr: the guard hooks are off" >&2
+fi
+[[ -f .claude/multi-agent-herdr-workflow.md ]] \
+    || echo "warning: .claude/multi-agent-herdr-workflow.md is missing: rerun the installer" >&2
 CLAUDE_ROLE=integrator exec claude --name "$name" \
-    --append-system-prompt-file "$repo_root/.claude/prompts/integrator.md" "$@"
+    --append-system-prompt-file "$prompt_file" "$@"

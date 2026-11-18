@@ -312,6 +312,45 @@ else
     echo "FAIL  notify: non-zero exit"; fails=$((fails + 1))
 fi
 
+# install.sh also drives the claude and herdr CLIs. The tests never reach the real ones: fakes
+# come first on PATH for the rest of the file, with their state in files under $ibin/state
+# (installed: the plugin is installed; install-exit: exit code of `plugin install`;
+# integration: the `claude:` line of `herdr integration status`; log: every mutating call).
+ibin="$work/install-bin"; ist="$ibin/state"; mkdir -p "$ist"
+cat > "$ibin/claude" <<'FAKE'
+#!/usr/bin/env bash
+st="$(dirname "$0")/state"
+case "$*" in
+    "plugin list --json")
+        if [[ -e "$st/installed" ]]; then echo '[{"id":"multi-agent-herdr@claude-code-herdr","scope":"project"}]'
+        else echo '[]'; fi ;;
+    "plugin marketplace add "*) echo "$*" >> "$st/log" ;;
+    "plugin install "*)
+        echo "$*" >> "$st/log"
+        code=$(cat "$st/install-exit" 2>/dev/null || echo 0)
+        [[ "$code" == 0 ]] && touch "$st/installed"
+        exit "$code" ;;
+    *) exit 64 ;;
+esac
+FAKE
+cat > "$ibin/herdr" <<'FAKE'
+#!/usr/bin/env bash
+st="$(dirname "$0")/state"
+case "$*" in
+    --version) echo "herdr 0.9.5" ;;
+    "integration status") echo "pi: not installed (x)"; cat "$st/integration" 2>/dev/null || echo "claude: current (v11) (x)" ;;
+    "integration install claude") echo "$*" >> "$st/log"; echo "claude: current (v11) (x)" > "$st/integration" ;;
+    *) exit 64 ;;
+esac
+FAKE
+chmod +x "$ibin/claude" "$ibin/herdr"
+PATH="$ibin:$PATH"
+ireset() { rm -f "$ist"/*; }
+check() {  # check <name> <condition exit status> [<detail on failure>]
+    if [[ "$2" == 0 ]]; then echo "ok    install: $1"
+    else echo "FAIL  install: $1${3:+: $3}"; fails=$((fails + 1)); fi
+}
+
 target="$work/target"
 new_repo "$target" no
 (cd "$target" && bash "$root/install.sh" >/dev/null) || { echo "FAIL  install: exit $?"; fails=$((fails + 1)); }
@@ -430,6 +469,73 @@ else
     echo "FAIL  install: invalid settings.json (exit $status, CLAUDE.md $([[ -e "$bad/CLAUDE.md" ]] && echo written || echo absent))"
     fails=$((fails + 1))
 fi
+# The plugin through the claude CLI: installed once, reported, never fatal.
+ireset
+pl="$work/plugin-cli"; new_repo "$pl" no
+out=$(cd "$pl" && bash "$root/install.sh")
+grep -qF "installed (project scope)" <<<"$out" \
+    && grep -qxF "plugin install multi-agent-herdr@claude-code-herdr --scope project" "$ist/log" \
+    && grep -qxF "plugin marketplace add R0drig0V1/claude-code-herdr" "$ist/log" \
+    && ! grep -qF "claude plugin install" <<<"$out"
+check "installs the plugin with the claude CLI" $? "$out"
+out=$(cd "$pl" && bash "$root/install.sh")
+grep -qF "already installed" <<<"$out" && [[ $(grep -c "^plugin install" "$ist/log") == 1 ]]
+check "second run does not install the plugin again" $? "$out"
+ireset
+out=$(cd "$pl" && bash "$root/install.sh" --no-plugin)
+grep -qF "skipped (--no-plugin)" <<<"$out" && grep -qF "claude plugin install" <<<"$out" && [[ ! -e "$ist/log" ]]
+check "--no-plugin skips the CLI and prints the commands" $? "$out"
+out=$(cd "$pl" && bash "$root/install.sh" --dry-run)
+grep -qF "would be installed" <<<"$out" && [[ ! -e "$ist/log" ]]
+check "--dry-run does not call the claude CLI" $? "$out"
+echo 1 > "$ist/install-exit"
+out=$(cd "$pl" && bash "$root/install.sh"); status=$?
+[[ $status == 0 ]] && grep -qF "NOT installed: the claude CLI refused" <<<"$out" && grep -qF "claude plugin install" <<<"$out"
+check "a refused plugin install is reported, not fatal" $? "exit $status: $out"
+
+# herdr's Claude integration: asked on the terminal, installed only on yes.
+ireset; touch "$ist/installed"
+echo "claude: not installed (x)" > "$ist/integration"
+out=$(cd "$pl" && MULTI_AGENT_HERDR_TTY=/dev/null bash "$root/install.sh" 2>/dev/null)
+grep -qF "Run: herdr integration install claude" <<<"$out" && [[ ! -e "$ist/log" ]]
+check "integration missing, no answer: command printed" $? "$out"
+echo n > "$work/answer"
+out=$(cd "$pl" && MULTI_AGENT_HERDR_TTY="$work/answer" bash "$root/install.sh" 2>/dev/null)
+grep -qF "Run: herdr integration install claude" <<<"$out" && [[ ! -e "$ist/log" ]]
+check "integration missing, answer no: not installed" $? "$out"
+echo y > "$work/answer"
+out=$(cd "$pl" && MULTI_AGENT_HERDR_TTY="$work/answer" bash "$root/install.sh" --dry-run 2>/dev/null)
+asked=0; [[ -e "$ist/log" ]] && asked=1
+check "integration missing, --dry-run: not asked" $asked "$out"
+out=$(cd "$pl" && MULTI_AGENT_HERDR_TTY="$work/answer" bash "$root/install.sh" 2>/dev/null)
+grep -qF -- "-> installed" <<<"$out" && grep -qxF "integration install claude" "$ist/log" \
+    && ! grep -qF "Run: herdr integration" <<<"$out"
+check "integration missing, answer yes: installed" $? "$out"
+# No herdr and no claude on PATH: reported, with the steps.
+ireset
+out=$(cd "$pl" && PATH=/usr/bin:/bin bash "$root/install.sh")
+grep -qF "herdr: NOT installed" <<<"$out" && grep -qF "Install herdr" <<<"$out" \
+    && grep -qF "claude is not on PATH" <<<"$out"
+check "no herdr and no claude: reported with next steps" $? "$out"
+ireset; touch "$ist/installed"
+
+# Never through a symbolic link or outside the repository.
+ln="$work/links"; new_repo "$ln" no
+mkdir -p "$work/outside"
+ln -s "$work/outside/CLAUDE.md" "$ln/CLAUDE.md"
+ln -s "$work/outside" "$ln/scripts"
+out=$(cd "$ln" && bash "$root/install.sh")
+[[ -z "$(ls -A "$work/outside")" ]] && grep -qF "! CLAUDE.md: NOT written" <<<"$out" \
+    && grep -qF "! scripts/check.sh: NOT written" <<<"$out" && [[ -f "$ln/.claude/settings.json" ]]
+check "refuses to write through symbolic links" $? "$(ls -A "$work/outside") / $out"
+arr="$work/array-settings"; new_repo "$arr" no
+printf '[]\n' > "$arr/.claude/settings.json"
+(cd "$arr" && bash "$root/install.sh" >/dev/null 2>&1); status=$?
+stopped=1; [[ $status == 1 && ! -e "$arr/CLAUDE.md" ]] && stopped=0
+check "settings.json that is not an object stops before copying" $stopped "exit $status"
+out=$(bash "$root/install.sh" --help)
+grep -qF "Needs git and bash" <<<"$out" && grep -qF -- "--no-plugin" <<<"$out" && ! grep -q '^#' <<<"$out"
+check "--help prints the whole header" $? "$out"
 sp="$work/with space/repo"
 mkdir -p "$work/with space"
 new_repo "$sp" no

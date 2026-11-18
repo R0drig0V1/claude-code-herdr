@@ -15,6 +15,9 @@ integration commands from `herdr integration` (herdr 0.9.5).
 
 Check everything first, report, then ask before each change. Any "no" skips that step.
 
+The installer (`install.sh`) already does these checks when a project is set up; this skill
+repeats them from inside Claude Code, after a plugin update or to diagnose a project.
+
 ## 1. herdr binary
 
 ```bash
