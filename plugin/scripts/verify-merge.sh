@@ -16,8 +16,9 @@
 #    verification cannot break (or fake) this one.
 # 2. scripts/worktree-setup.sh, if present: install dependencies the PR may have added. It
 #    receives the project's base branch (project-config.py base_branch, default main) as $1.
-# 3. scripts/check.sh: lint, formatting, types and tests. A project without one only gets a
-#    warning, so configure it before trusting a VERIFY OK.
+# 3. scripts/check.sh: lint, formatting, types and tests. It must exist and be executable:
+#    without it nothing would be checked, so the verification fails (a PR that deletes it,
+#    renames it or drops its executable bit must not merge unverified).
 #
 # Part of the multi-agent-herdr plugin (unchanged from multi-agent 0.1.0); the scripts above belong to the project and are resolved
 # from the repository of the current directory.
@@ -26,9 +27,10 @@
 set -euo pipefail
 
 repo_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-cd "$repo_root"
+# Checked before the cd below: after it the test would always hold.
 [[ "$(git rev-parse --absolute-git-dir)" == "$repo_root/.git" ]] \
     || { echo "run it in the main worktree ($repo_root)" >&2; exit 2; }
+cd "$repo_root"
 
 step() { echo; echo "==> $*"; }
 
@@ -60,11 +62,14 @@ if [[ -x scripts/worktree-setup.sh ]]; then
     scripts/worktree-setup.sh "$("$(dirname "$0")/project-config.py" --root "$repo_root" base_branch)"
 fi
 failed_step="checks"; step "$failed_step"
-if [[ -x scripts/check.sh ]]; then
-    scripts/check.sh
-else
-    echo "warning: scripts/check.sh not found; nothing was checked" >&2
+if [[ ! -f scripts/check.sh ]]; then
+    echo "scripts/check.sh not found: nothing can be verified" >&2
+    exit 1
+elif [[ ! -x scripts/check.sh ]]; then
+    echo "scripts/check.sh is not executable (git update-index --chmod=+x scripts/check.sh)" >&2
+    exit 1
 fi
+scripts/check.sh
 
 echo
 echo "VERIFY OK"

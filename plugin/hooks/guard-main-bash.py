@@ -26,9 +26,15 @@ every other session, it blocks:
   (`>`, `sed -i`, `tee`, `rm`, `mv`, `cp`, `touch`, `mkdir`) whose target is inside the main
   worktree. Writes to temporary directories are allowed.
 
+* from a linked worktree too: the same file writes when their target is a path inside the
+  main worktree, and any `git push` run in the main worktree.
+
 It is a guardrail against mistakes, not a sandbox: the command is parsed with `shlex` per
-`&&`/`||`/`;`/`|` segment, following `cd <dir>`, `git -C <dir>`, the `env`/`command`/`exec`/
-`builtin`/`nohup`/`time` prefixes and `sh|bash|zsh -c` / `eval` strings (up to 3 levels).
+`&&`/`||`/`;`/`|` segment, following `cd <dir>` (scoped to `( ... )` subshells), `git -C
+<dir>` and git's other global options, `VAR=value` assignments made earlier in the same
+command line, the `env`/`command`/`exec`/`builtin`/`nohup`/`time` prefixes, the shell words
+`{`, `!`, `if`, `then`, `do`..., and `sh|bash|zsh -c` / `eval` strings (up to 3 levels).
+Comments are removed and a heredoc's body is data, but the rest of its opening line is kept.
 herdr is recognised by name or path, by `$HERDR_BIN_PATH`, and as any unresolved `$VAR`
 program given an input-sending herdr subcommand; the herdr rules apply whenever the session
 itself, or the directory the command `cd`s to, is in an enabled repository. A creative
@@ -77,10 +83,20 @@ def git_dirs(path: str) -> tuple[str, str] | None:
         path = os.path.dirname(path)
     try:
         out = subprocess.run(
-            ["git", "-C", path, "rev-parse", "--absolute-git-dir",
-             "--path-format=absolute", "--git-common-dir"],
-            capture_output=True, text=True, check=True, timeout=5,
-        ).stdout.split()  # fmt: skip
+            [
+                "git",
+                "-C",
+                path,
+                "rev-parse",
+                "--absolute-git-dir",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        ).stdout.splitlines()  # fmt: skip  (one path per line: a path may hold spaces)
     except (subprocess.SubprocessError, OSError):
         return None
     return (out[0], out[1]) if len(out) == 2 else None
@@ -150,7 +166,10 @@ def protected(config: dict[str, Any]) -> list[str]:
 def push_target(refspec: str) -> str:
     """Branch a `git push` refspec writes: the part after `:`, without `+` and `refs/heads/`."""
     dest = refspec.lstrip("+").rsplit(":", 1)[-1]
-    return dest[len("refs/heads/") :] if dest.startswith("refs/heads/") else dest
+    for prefix in ("refs/heads/", "heads/"):
+        if dest.startswith(prefix):
+            return dest[len(prefix) :]
+    return dest
 
 
 def in_main_worktree(path: str) -> bool:
@@ -217,23 +236,62 @@ def herdr_reason(args: list[str], integrators: set[str] | None = None) -> str | 
     return None
 
 
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?=\n|$)", re.S)
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1([^\n]*)\n.*?\n\s*\2\s*(?=\n|$)", re.S)
 REDIRECT = re.compile(r"^&?>+[&|]?$")
+PUNCTUATION = ";&|<>()"
+ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+VARIABLE = re.compile(r"\$(\w+)|\$\{(\w+)\}")
+
+
+def strip_comments(command: str) -> str:
+    """`command` without its shell comments: an unquoted `#` at the start of a word, to the
+    end of its line. `shlex`'s own comment handling drops everything up to the end of the
+    *string*, and also cuts `issue#12`, so a comment would hide the commands after it."""
+    out: list[str] = []
+    quote = ""
+    word_start = True
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if not quote and ch == "#" and word_start:
+            while i < len(command) and command[i] != "\n":
+                i += 1
+            continue
+        out.append(ch)
+        if ch == "\\" and quote != "'" and i + 1 < len(command):
+            i += 1
+            out.append(command[i])
+            word_start = False
+        elif quote:
+            quote = "" if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+            word_start = False
+        else:
+            word_start = ch in " \t\n;&|()"
+        i += 1
+    return "".join(out)
 
 
 def segments(command: str) -> list[list[str]]:
     """Split a command line into simple commands (lists of words).
 
-    Heredoc bodies are dropped (they are data, e.g. a commit message), and newlines separate
-    commands like `;` does.
+    A heredoc's body is dropped (it is data, e.g. a commit message) but the rest of its
+    opening line stays: it may hold a redirection or another command. Comments are removed,
+    and newlines separate commands like `;` does. Parentheses come back as one-word segments
+    made only of `(` and `)`, so the caller can scope `cd` to a subshell.
     """
-    command = HEREDOC.sub(lambda m: m.group(0).split("\n", 1)[0].split("<<", 1)[0], command)
-    command = command.replace("\n", " ; ")
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>")
+    command = HEREDOC.sub(lambda m: " " + m.group(3), command)
+    command = strip_comments(command.replace("\\\n", " ")).replace("\n", " ; ")
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=PUNCTUATION)
     lexer.whitespace_split = True
+    lexer.commenters = ""
     result: list[list[str]] = [[]]
     for token in lexer:
-        if token in SEPARATORS:
+        parens = "".join(c for c in token if c in "()")
+        if token and parens and set(token) <= set(PUNCTUATION):
+            result += [[parens], []]  # `(`, `)`, `);`, `)&&`...: a scope change and a separator
+        elif token in SEPARATORS:
             result.append([])
         else:
             result[-1].append(token)
@@ -243,6 +301,88 @@ def segments(command: str) -> list[list[str]]:
 WRAPPERS = {"command", "exec", "builtin", "nohup", "time"}  # run their argument as the command
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 MAX_DEPTH = 3  # nested `bash -c` / `eval` strings followed
+SHELL_WORDS = {"{", "!", "if", "then", "else", "elif", "do", "while", "until"}
+SHELL_C = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")  # -c, -lc, -ec...
+GIT_DIR_OPTS = {"-C", "--git-dir", "--work-tree"}
+GIT_VALUE_OPTS = {"-c", "--namespace", "--super-prefix", "--config-env"}
+
+
+def strip_prefixes(words: list[str]) -> list[str]:
+    """`words` without what precedes the program: shell keywords and `{`/`!`, `VAR=value`
+    assignments, and the `env`/`command`/`exec`... wrappers with their options."""
+    while words:
+        if words[0] == "env" or words[0] in WRAPPERS:
+            words = words[1:]
+            while words and words[0].startswith("-"):
+                words = words[1:]  # wrapper options (`command -p`, `env -i`)
+        elif words[0] in SHELL_WORDS or ASSIGNMENT.match(words[0]):
+            words = words[1:]
+        else:
+            break
+    return words
+
+
+def inner_command(prog: str, args: list[str]) -> str | None:
+    """The command string of `bash -c '<command>'` (also `-lc`, `-ec`...) or `eval`, or None."""
+    if prog == "eval":
+        return " ".join(args)
+    if prog in SHELLS:
+        for i, arg in enumerate(args[:-1]):
+            if SHELL_C.match(arg):
+                return args[i + 1]
+    return None
+
+
+def git_globals(args: list[str], cwd: str) -> tuple[str, list[str]]:
+    """(directory git acts on, arguments from the subcommand on) of a `git` invocation.
+
+    Skips every global option before the subcommand (`--no-pager`, `-P`, `-c k=v`...) and
+    follows the ones that choose the repository: `-C`, `--git-dir` and `--work-tree`.
+    """
+    args = list(args)
+    while args and args[0].startswith("-"):
+        name, has_value, value = args.pop(0).partition("=")
+        if name in GIT_DIR_OPTS:
+            if not has_value and args:
+                value = args.pop(0)
+            cwd = resolve(cwd, value)
+        elif name in GIT_VALUE_OPTS and not has_value and args:
+            args.pop(0)
+    return cwd, args
+
+
+def gh_command(args: list[str]) -> list[str]:
+    """`gh` arguments from the command on, without the global flags (`-R owner/repo`)."""
+    args = list(args)
+    while args and args[0].startswith("-"):
+        if args.pop(0) in {"-R", "--repo"} and args:
+            args.pop(0)
+    return args
+
+
+def file_reason(prog: str, args: list[str], cwd: str) -> str | None:
+    """Reason to block a command that changes files of the main worktree, or None.
+
+    Dependency changes and formatters act on the directory they run in. File writers are
+    judged by their target, so a path into the main worktree is blocked from a linked
+    worktree too; with no target at all they are blocked only when run in the main worktree.
+    """
+    here = in_main_worktree(cwd)
+    if here and prog in DEP_CHANGERS and args[:1] and args[0] in DEP_CHANGERS[prog]:
+        return f"`{prog} {args[0]}` changes the main worktree's dependencies"
+    if here and rewrites_files(prog, args):
+        return f"`{prog}` rewriting files in the main worktree"
+    if prog in {"sed", "perl"} and any(a.startswith("-i") for a in args):
+        targets = [a for a in args if not a.startswith("-")][1:]
+        if any(writes_into_main(cwd, t) for t in targets) or (here and not targets):
+            return f"`{prog} -i` editing files in the main worktree"
+    if prog in FILE_WRITERS:
+        targets = [a for a in args if not a.startswith("-")]
+        if prog in {"cp", "mv", "ln"}:
+            targets = targets[-1:]  # only the destination is written
+        if (here and not targets) or any(writes_into_main(cwd, t) for t in targets):
+            return f"`{prog}` writing inside the main worktree"
+    return None
 
 
 def is_herdr(word: str, args: list[str]) -> bool:
@@ -285,27 +425,13 @@ def check_segment(  # noqa: C901 (complexity 35; capped by lizard, see docs/code
             continue
         kept.append(word)
         i += 1
-    words = kept
-    while words:
-        if words[0] == "env" or words[0] in WRAPPERS:
-            # `env VAR=value cmd`, `command cmd`, `exec cmd`...: the argument is the command.
-            words = words[1:]
-            while words and words[0].startswith("-"):
-                words = words[1:]  # wrapper options (`command -p`, `env -i`)
-        elif re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
-            words = words[1:]  # leading VAR=value assignments
-        else:
-            break
+    words = strip_prefixes(kept)
     if not words:
         return None
     prog, args = os.path.basename(words[0]), words[1:]
 
     # `bash -c '<command>'` and `eval '<command>'`: check the command string itself.
-    inner = None
-    if prog in SHELLS and "-c" in args[:-1]:
-        inner = args[args.index("-c") + 1]
-    elif prog == "eval":
-        inner = " ".join(args)
+    inner = inner_command(prog, args)
     if inner is not None and depth < MAX_DEPTH:
         return check_command(inner, cwd, session, depth + 1)
 
@@ -323,15 +449,11 @@ def check_segment(  # noqa: C901 (complexity 35; capped by lizard, see docs/code
             args = args[1:]  # runner options (--quiet, --frozen...)
         prog, args = (os.path.basename(args[0]), args[1:]) if args else ("", [])
 
-    if prog == "gh" and args[:2] == ["pr", "merge"] and guarded_repo(cwd):
+    if prog == "gh" and gh_command(args)[:2] == ["pr", "merge"] and guarded_repo(cwd):
         return "only the integrator merges pull requests"
 
     if prog == "git":
-        git_cwd = cwd
-        while len(args) >= 2 and args[0] in {"-C", "-c"}:
-            if args[0] == "-C":
-                git_cwd = resolve(git_cwd, args[1])
-            args = args[2:]
+        git_cwd, args = git_globals(args, cwd)
         sub = args[0] if args else ""
         config = settings(git_cwd) if sub == "push" else None
         if config is not None:
@@ -344,37 +466,42 @@ def check_segment(  # noqa: C901 (complexity 35; capped by lizard, see docs/code
                 if any(fnmatch.fnmatchcase(branch, p) for p in patterns):
                     return (f"pushing to the protected branch {branch}; open a pull request "
                             "with /multi-agent-herdr:pr instead")  # fmt: skip
-        if sub in GIT_MUTATING and in_main_worktree(git_cwd):
+        if sub in GIT_MUTATING | {"push"} and in_main_worktree(git_cwd):
             return f"`git {sub}` in the main worktree"
         changes_branch = sub == "branch" and {"-d", "-D", "-m", "-M", "-f"} & set(args)
         if changes_branch and in_main_worktree(git_cwd):
             return "`git branch` changes in the main worktree"
         return None
 
-    if not in_main_worktree(cwd):
-        return None
-    if prog in DEP_CHANGERS and args[:1] and args[0] in DEP_CHANGERS[prog]:
-        return f"`{prog} {args[0]}` changes the main worktree's dependencies"
-    if rewrites_files(prog, args):
-        return f"`{prog}` rewriting files in the main worktree"
-    if prog in {"sed", "perl"} and any(a == "-i" or a.startswith("-i") for a in args):
-        targets = [a for a in args if not a.startswith("-")][1:]
-        if any(writes_into_main(cwd, t) for t in targets) or not targets:
-            return f"`{prog} -i` editing files in the main worktree"
-    if prog in FILE_WRITERS:
-        targets = [a for a in args if not a.startswith("-")]
-        if prog in {"cp", "mv", "ln"}:
-            targets = targets[-1:]  # only the destination is written
-        if not targets or any(writes_into_main(cwd, t) for t in targets):
-            return f"`{prog}` writing inside the main worktree"
-    return None
+    return file_reason(prog, args, cwd)
 
 
 def check_command(command: str, cwd: str, session: str, depth: int = 0) -> str | None:
-    """Reason to block a whole command line, or None; follows `cd` from segment to segment."""
+    """Reason to block a whole command line, or None.
+
+    Follows `cd` from segment to segment, restoring the directory when a `( ... )` subshell
+    closes, and expands the variables the command line itself assigned (`D=/repo; cd "$D"`).
+    """
+    scopes: list[str] = []
+    variables: dict[str, str] = {}
     for words in segments(command):
-        if words[0] == "cd":
-            cwd = resolve(cwd, words[1]) if len(words) > 1 else os.path.expanduser("~")
+        if len(words) == 1 and words[0] and set(words[0]) <= {"(", ")"}:
+            for paren in words[0]:
+                if paren == "(":
+                    scopes.append(cwd)
+                elif scopes:
+                    cwd = scopes.pop()
+            continue
+        words = [
+            VARIABLE.sub(lambda m: variables.get(m.group(1) or m.group(2), m.group(0)), w)
+            for w in words
+        ]
+        if all(ASSIGNMENT.match(w) for w in words):
+            variables.update(w.split("=", 1) for w in words)  # type: ignore[misc]
+            continue
+        body = strip_prefixes(words)
+        if body[:1] == ["cd"]:
+            cwd = resolve(cwd, body[1]) if len(body) > 1 else os.path.expanduser("~")
             continue
         reason = check_segment(words, cwd, session, depth)
         if reason:

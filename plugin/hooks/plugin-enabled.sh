@@ -13,7 +13,7 @@ plugin_enabled() {
     for file in "$1/.claude/settings.local.json" "$1/.claude/settings.json"; do
         [[ -f "$file" ]] || continue
         value=$(jq -r --arg id "multi-agent-herdr@claude-code-herdr" \
-            '.enabledPlugins[$id] | if . == null then empty else tostring end' \
+            '.enabledPlugins[$id] | if . == null then empty elif . == true then "true" else "false" end' \
             "$file" 2>/dev/null) || continue
         if [[ -n "$value" ]]; then
             [[ "$value" == true ]]

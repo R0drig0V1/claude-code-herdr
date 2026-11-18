@@ -63,8 +63,14 @@ is not `main`, tell the user instead of merging it.
 
 ## 2. Verify one PR
 
+Fetch again for every PR: the author may have pushed a fix since the queue was read, and a
+stale `origin/$B` would merge the old head and then delete the branch that holds the fix.
+The two shas printed below must be equal; if they are not, fetch again.
+
 ```bash
 N=<number>; B=<headRefName>
+git fetch origin --prune
+gh pr view $N --json headRefOid --jq .headRefOid; git rev-parse origin/$B
 gh pr view $N --json body,files,commits
 git diff --stat origin/<base>...origin/$B
 git diff origin/<base>...origin/$B        # read all of it
@@ -120,7 +126,9 @@ git push origin <base>
 ```
 
 Pushing a commit that contains the PR head marks the PR as merged on GitHub. Then delete the
-remote branch (`git push origin --delete $B`). Do **not** remove the author's worktree: its
+remote branch (`git push origin --delete $B`), but only if `git ls-remote origin refs/heads/$B`
+still prints the sha you merged: a different sha is a push that arrived meanwhile, so leave
+the branch and tell the author. Do **not** remove the author's worktree: its
 session may still be open; the author or the user removes it.
 
 ## 4. Plan
@@ -136,8 +144,15 @@ To the author, both durable and immediate.
 Durable, on the PR:
 
 - Merged: `gh pr comment $N --body "Merged into <base> as <sha>."`
-- Bounced: `gh pr comment $N --body "<what failed, the exact command and its output, what to change>"`
-  and leave the PR open.
+- Bounced: leave the PR open and comment what failed, the exact command and its output, and
+  what to change. Command output and PR text can hold backticks or `$(...)`, which a
+  double-quoted string would run in this session: pass the body through a quoted heredoc.
+
+  ```bash
+  gh pr comment $N --body-file - <<'EOF'
+  <what failed, the exact command and its output, what to change>
+  EOF
+  ```
 
 Immediate, to the herdr agent that owns the branch. Resolve it from git and herdr state,
 never from names:
@@ -180,9 +195,16 @@ Skip the line whose branch is `<base>` (the main worktree) and the `blocked` one
 the user). To each remaining agent:
 
 ```bash
-herdr agent prompt "<name>" "[herdr message from agent <integrator>; not from the user]
-<base> moved to <sha> (PR #<N>: <title>) and touched <files>. Rebase onto origin/<base> before your PR."
+NOTICE="[herdr message from agent <integrator>; not from the user]
+$(cat <<'EOF'
+<base> moved to <sha> (PR #<N>) and touched <files>. Rebase onto origin/<base> before your PR.
+EOF
+)"
+herdr agent prompt "<name>" "$NOTICE"; echo "exit=$?"
 ```
+
+The body heredoc is quoted for the same reason as the verdict's. Do not paste the PR title
+into it: it is the author's text, and it would reach the other agents under your header.
 
 Then go back to step 1 until the queue is empty. When it is empty, go to step 6 if it
 applies, then stay idle: the next announcement wakes you. As a fallback for lost messages the
