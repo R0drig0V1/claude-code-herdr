@@ -28,7 +28,8 @@ apply. Checks run on GitHub, not on contributors' machines.
 | `scorecard.yml` | OpenSSF Scorecard on main, weekly | supply-chain posture: pinning, token permissions, branch protection, policy | no, score only |
 | `dependabot.yml` | version updates for `github-actions` and `uv` | outdated pinned actions and linters (7-day cooldown) | opens PRs |
 
-Every workflow declares `permissions:` (`{}` at the top, the minimum per job), pins each
+Every workflow declares `permissions:` (`{}` at the top, or `contents: read` in `ci.yml`,
+whose only job needs nothing more; the minimum per job), pins each
 action by full commit SHA with its version as a comment, and checks out with
 `persist-credentials: false`. Binaries that are downloaded (actionlint, gitleaks) are checked
 against a sha256 in the workflow.
@@ -89,18 +90,55 @@ by hand, together with their checksums:
 
 ## Repository settings (owner's decision)
 
-These are not in any file. They are the repository owner's call and are listed in the PR that
-added this document. State as read through `gh api` on 2026-11-07:
+These are not in any file: GitHub keeps them, and nothing in the repository applies or checks
+them. They are the repository owner's call. When one changes, update this table in the same
+PR or right after. State as read through `gh api` on 2026-11-18:
 
 | Setting | State | How to enable |
 |---|---|---|
 | Secret scanning | enabled | done |
 | Push protection | enabled | done |
-| Dependabot alerts | disabled | `gh api -X PUT repos/R0drig0V1/claude-code-herdr/vulnerability-alerts` |
-| Dependabot security updates | disabled | `gh api -X PUT repos/R0drig0V1/claude-code-herdr/automated-security-fixes` (needs alerts) |
-| Private vulnerability reporting (needed by SECURITY.md) | disabled | `gh api -X PUT repos/R0drig0V1/claude-code-herdr/private-vulnerability-reporting`, or Settings → Security and quality → Advanced Security → Private vulnerability reporting → Enable |
-| Require actions pinned to a full SHA | off | `gh api -X PUT repos/R0drig0V1/claude-code-herdr/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true` |
+| Dependabot alerts | enabled | `gh api -X PUT repos/R0drig0V1/claude-code-herdr/vulnerability-alerts` |
+| Dependabot security updates | enabled | `gh api -X PUT repos/R0drig0V1/claude-code-herdr/automated-security-fixes` (needs alerts) |
+| Private vulnerability reporting (needed by SECURITY.md) | enabled | `gh api -X PUT repos/R0drig0V1/claude-code-herdr/private-vulnerability-reporting`, or Settings → Security and quality → Advanced Security → Private vulnerability reporting → Enable |
+| Require actions pinned to a full SHA | on | `gh api -X PUT repos/R0drig0V1/claude-code-herdr/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true` |
 | CodeQL default setup | not configured | **leave it off**: `codeql.yml` is the advanced setup, and the two conflict |
+| Ruleset `protect-main` (id 27542167) on the default branch | active: blocks deletion and force pushes (`deletion`, `non_fast_forward`) | see "Branch ruleset" below |
+
+### Branch ruleset
+
+`main` is protected by the ruleset `protect-main`, created on 2026-11-18. It blocks deleting
+`main` and rewriting its history (force pushes). Rulesets are free for public repositories on
+every plan. To recreate it:
+
+```bash
+gh api -X POST repos/R0drig0V1/claude-code-herdr/rulesets --input - <<'JSON'
+{
+  "name": "protect-main",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "rules": [ { "type": "deletion" }, { "type": "non_fast_forward" } ]
+}
+JSON
+```
+
+Check what applies to `main` with `gh api repos/R0drig0V1/claude-code-herdr/rules/branches/main`.
+
+It deliberately does **not** require a pull request or passing status checks. The
+`integrate` skill lands a PR by merging it locally (`git merge --no-ff --no-commit`), verifying
+the merged tree with `verify-merge.sh`, and pushing the merge commit straight to `main`
+(`plugin/skills/integrate/SKILL.md`, "Merge"). That merge commit is new, so GitHub has never
+run checks on it, and both rules would reject the push. Requiring them would need one of:
+
+- a bypass for the repository admin, which the integrator uses (it pushes with the owner's
+  credentials), so the rules would only bind other collaborators; there are none with write
+  access today;
+- the integrator landing PRs through GitHub (`gh pr merge` after the local verification)
+  instead of pushing, a design change to the plugin.
+
+OpenSSF Scorecard's `BranchProtectionID` alert is expected to stay open for this reason: it scores required
+reviews and status checks, which this ruleset leaves out.
 
 ## Research: tools considered (2026-11-07)
 
