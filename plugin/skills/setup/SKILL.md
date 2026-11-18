@@ -70,6 +70,37 @@ ls "$root"/scripts/check.sh "$root"/scripts/integrator.sh "$root"/.claude/prompt
   only after the user confirms, and tell them the running integrator takes the new name the
   next time a session starts (the SessionStart hook) or it runs `dispatch` or `integrate`.
 
+- **Workflow rules** (`.claude/multi-agent-herdr-workflow.md`, managed by the plugin and
+  imported by `CLAUDE.md`). They are versioned files, so check and change the copies of the
+  **worktree this session is in**, not the main worktree's:
+
+  ```bash
+  wt=$(git rev-parse --show-toplevel)
+  cmp "${CLAUDE_PLUGIN_ROOT}/context/workflow.md" "$wt/.claude/multi-agent-herdr-workflow.md"
+  grep -nxF '@.claude/multi-agent-herdr-workflow.md' "$wt/CLAUDE.md"
+  grep -nE '^## (Plan and workflow|Multi-agent workflow)$' "$wt/CLAUDE.md"
+  ```
+
+  In a project that already runs the workflow, any change below is made in a development
+  agent's worktree and reaches the base branch through a PR (`/multi-agent-herdr:commit`,
+  `/multi-agent-herdr:pr`). If this session is in the main worktree, do not write there
+  (the guards block it, and the integrator does not develop): report what is outdated and
+  tell the user to have the integrator dispatch an agent for it, e.g.
+  `/multi-agent-herdr:dispatch chore/workflow-rules "Run /multi-agent-herdr:setup and open a PR"`.
+  Only a project being set up for the first time, with nothing committed yet, is changed in
+  place.
+
+  - Missing or different: show `diff` between the two files and, after the user confirms,
+    copy the plugin's version over it. Never edit it by hand to merge local changes, they
+    belong in `CLAUDE.md`. If the project's copy looks newer than the plugin's, the plugin is
+    the outdated side: suggest updating it (`/plugin`) instead.
+  - No import line in `CLAUDE.md`: offer to add it (a `## Workflow` section with the line
+    `@.claude/multi-agent-herdr-workflow.md`).
+  - `## Plan and workflow` or `## Multi-agent workflow` still in `CLAUDE.md` (written by an
+    install before the rules moved to the plugin): they duplicate the imported file and will
+    drift from it. Show them and offer to remove them, together with the generic bullets of
+    `## Rules` that the imported file now carries (document everything, ADRs,
+    `scripts/check.sh`). Keep every project-specific line.
 - This plugin not enabled, or project files missing: offer the installer from this plugin's
   repository (`install.sh --dry-run` first, then without it after the user confirms).
 - **The old `multi-agent` plugin also enabled**: both plugins' hooks would run, and the old
@@ -86,5 +117,5 @@ the exact diff and get confirmation before writing.
 ## 5. Report
 
 One line each: herdr version (client/server), Claude integration state, project state
-(plugin enabled, project files, base branch and integrator name, old multi-agent enabled or
-not), and what was installed or skipped.
+(plugin enabled, project files, workflow rules up to date or not, base branch and integrator
+name, old multi-agent enabled or not), and what was installed or skipped.

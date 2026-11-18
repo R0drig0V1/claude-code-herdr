@@ -41,7 +41,9 @@ supported.
 1. herdr, if missing: `curl -fsSL https://herdr.dev/install.sh | sh` (other methods:
    https://herdr.dev/tui/docs/install/), then `herdr integration install claude`.
 2. From inside the repository you want to set up (copies the project-owned files without
-   overwriting, `--dry-run` previews, `--force` overwrites, and enables the plugin in
+   overwriting, except the plugin-managed `.claude/multi-agent-herdr-workflow.md`, which is
+   always brought up to date, and the one import line appended to an existing `CLAUDE.md`;
+   `--dry-run` previews, `--force` overwrites, and enables the plugin in
    `.claude/settings.json`):
 
    ```bash
@@ -110,7 +112,9 @@ the promotion procedure the project documents in `CLAUDE.md` or
    hooks run. `install.sh` does this step: it adds the new plugin and sets
    `multi-agent@claude-code-multi-agent` to `false`, and says so (`disabled ...`). It only
    warns about a `.claude/settings.local.json` that still enables the old plugin.
-2. Update the project's `CLAUDE.md` ("Multi-agent workflow") and
+2. Rerun `install.sh`: it adds `.claude/multi-agent-herdr-workflow.md` and appends its
+   import to `CLAUDE.md`; then remove the old "Plan and workflow" and "Multi-agent workflow"
+   sections from `CLAUDE.md` (`/multi-agent-herdr:setup` offers to). Update
    `.claude/prompts/integrator.md` from `template/`; skill names change from `/multi-agent:*` to
    `/multi-agent-herdr:*`, and `/multi-agent:worktree` is replaced by `dispatch`.
 3. `scripts/check.sh`, `scripts/worktree-setup.sh` and `scripts/verify-reset.sh` keep working
@@ -158,7 +162,7 @@ their settings and keep it; `/multi-agent-herdr:setup` offers to remove the key.
 | Skill | `security-audit` | Cloudflare's [security-audit skill](https://github.com/cloudflare/security-audit-skill), vendored unchanged (MIT, its own `LICENSE`): security guidance by default, a six-phase audit with independent verification when asked for one |
 | Agent | `plan-adversary`, `code-reviewer` | Read-only plan red team; read-only bug and security reviewer |
 | Hook | `guard-main-worktree.sh`, `guard-main-bash.py` | Block Edit/Write, shell writes, mutating git, dependency changes and formatters in the main worktree, plus `gh pr merge`, pushes to `main`, and herdr commands that type into another pane (see Rules) |
-| Hook | `session-start-worktree.sh` | Tells sessions in the main worktree to route changes through the integrator's `dispatch` |
+| Hook | `session-start.sh` | Warns when the project's workflow rules differ from the plugin's; tells sessions in the main worktree to route changes through the integrator's `dispatch` |
 | Hook | `session-start-integrator.sh` | Gives the integrator session its herdr name (`claim-integrator.sh`) as it starts, relaunches and resumes included |
 | Hook | `notify.sh` | Sound and terminal bell on Stop / Notification |
 | Script | `new-worktree.sh`, `verify-merge.sh` | Worktree creation; verification gate whose exit code is the verdict |
@@ -169,6 +173,19 @@ their settings and keep it; `/multi-agent-herdr:setup` offers to remove the key.
 Project-owned files from `template/`: `CLAUDE.md`, `scripts/check.sh` (your definition of
 green), `scripts/integrator.sh`, `.claude/prompts/integrator.md`, `.claude/settings.json`,
 `.claude/multi-agent-herdr.json` and the `docs/{phases,decisions,plan-reviews}/` indexes.
+
+### Workflow rules
+
+The workflow rules every agent follows ship with the plugin (`plugin/context/workflow.md`)
+and are copied into each project as `.claude/multi-agent-herdr-workflow.md`, which `CLAUDE.md`
+imports (`@.claude/multi-agent-herdr-workflow.md`). Claude Code therefore loads them in every
+session and subagent, from the project's own versioned copy, without depending on a hook. The
+copy is managed by the plugin: do not edit it (project rules go in `CLAUDE.md`). When the
+plugin changes the rules, the `SessionStart` hook notices the copy differs and the session
+says so once. A development agent updates the copy in its own worktree
+(`/multi-agent-herdr:setup` or a rerun of `install.sh` there) and the change reaches the base
+branch through a PR like any other. A worktree whose copy is still the base branch's is not
+warned: it gets the update when it rebases.
 
 ## Rules
 

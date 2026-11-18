@@ -4,7 +4,7 @@
 #
 # Only the integrator session may modify files in the *main* worktree (the original checkout,
 # branch main). Development agents work in their own worktrees and reach main through pull
-# requests (see "Multi-agent workflow" in CLAUDE.md). The integrator is recognised by the
+# requests (see "Multi-agent workflow" in .claude/multi-agent-herdr-workflow.md). The integrator is recognised by the
 # environment variable CLAUDE_ROLE=integrator, set by scripts/integrator.sh.
 #
 # The check is on the *target file*, not on the session's directory, so an agent sitting in a
@@ -37,7 +37,7 @@ if [[ "$git_dir" == "$common_dir" ]]; then
     cat >&2 <<MSG
 Blocked: $file is in the main worktree, which only the integrator session may modify.
 Development happens in a worktree of its own, started by the integrator with
-/multi-agent-herdr:dispatch (see "Multi-agent workflow" in CLAUDE.md). If you are the integrator, launch Claude Code
+/multi-agent-herdr:dispatch (see "Multi-agent workflow" in .claude/multi-agent-herdr-workflow.md). If you are the integrator, launch Claude Code
 with scripts/integrator.sh (CLAUDE_ROLE=integrator).
 MSG
     exit 2

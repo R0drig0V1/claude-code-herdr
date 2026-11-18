@@ -260,18 +260,51 @@ CLAUDE_ROLE=integrator expect 0 "edit: integrator"    "$w" "$(file_op "$on/new.m
 expect 0 "edit: plugin set to false"                  "$w" "$(file_op "$dis/new.md")"
 expect 0 "edit: settings.local.json sets false"       "$w" "$(file_op "$ldis/new.md")"
 
-s="$hooks/session-start-worktree.sh"
-out=$(jq -nc --arg d "$on" '{cwd: $d}' | "$s")
-if jq -e '.hookSpecificOutput.additionalContext | contains("/multi-agent-herdr:dispatch")' <<<"$out" >/dev/null; then
-    echo "ok    session-start: instructions in main worktree"
-else
-    echo "FAIL  session-start: no instructions in main worktree"; fails=$((fails + 1))
-fi
-for d in "$work/on-x" "$off" "$dis"; do
-    out=$(jq -nc --arg d "$d" '{cwd: $d}' | "$s")
-    if [[ -z "$out" ]]; then echo "ok    session-start: silent in $(basename "$d")"
-    else echo "FAIL  session-start: output in $(basename "$d")"; fails=$((fails + 1)); fi
-done
+s="$hooks/session-start.sh"
+rules="$root/plugin/context/workflow.md"
+rules_rel=.claude/multi-agent-herdr-workflow.md
+ctx() { jq -nc --arg d "$1" '{cwd: $d}' | "$s" | jq -r '.hookSpecificOutput.additionalContext // empty'; }
+has() {  # has <name> <text> <must contain> [<must not contain>]
+    if grep -qF -- "$3" <<<"$2" && { [[ -z "${4:-}" ]] || ! grep -qF -- "$4" <<<"$2"; }; then
+        echo "ok    session-start: $1"
+    else
+        echo "FAIL  session-start: $1: $2"; fails=$((fails + 1))
+    fi
+}
+silent() {  # silent <name> <dir>
+    local out
+    out=$(jq -nc --arg d "$2" '{cwd: $d}' | "$s")
+    if [[ -z "$out" ]]; then echo "ok    session-start: $1"
+    else echo "FAIL  session-start: $1: $out"; fails=$((fails + 1)); fi
+}
+# Main worktree without the rules file: both the rules note and the main-worktree instructions.
+out=$(ctx "$on")
+has "main worktree, rules missing: instructions" "$out" "/multi-agent-herdr:dispatch"
+has "main worktree, rules missing: rules note" "$out" "$rules_rel is missing"
+cp "$rules" "$on/$rules_rel"
+has "main worktree, rules current: no rules note" "$(ctx "$on")" "/multi-agent-herdr:dispatch" "Tell the user once"
+CLAUDE_ROLE=integrator silent "integrator, rules current" "$on"
+echo "local change" >> "$on/$rules_rel"
+CLAUDE_ROLE=integrator has "integrator, rules differ" "$(CLAUDE_ROLE=integrator ctx "$on")" \
+    "differs from the installed" "MAIN worktree"
+rm -f "$on/$rules_rel"
+# A linked worktree is told only when its copy is neither the plugin's nor the base branch's:
+# it cannot fix the base branch from there, and never gets the main-worktree instructions.
+x="$work/on-x"
+silent "linked worktree, rules missing here and on the base branch" "$x"
+mkdir -p "$x/.claude" && echo "stale rules" > "$x/$rules_rel"
+git -C "$x" add "$rules_rel" && git -C "$x" -c user.email=t@t -c user.name=t commit --quiet -m rules
+git -C "$x" update-ref refs/remotes/origin/main HEAD
+silent "linked worktree, stale copy is the base branch's" "$x"
+echo "local change" >> "$x/$rules_rel"
+has "linked worktree, copy differs from plugin and base" "$(ctx "$x")" "differs from the installed" "MAIN worktree"
+rm -f "$x/$rules_rel"
+has "linked worktree, rules deleted but on the base branch" "$(ctx "$x")" "$rules_rel is missing" "MAIN worktree"
+cp "$rules" "$x/$rules_rel"
+silent "linked worktree, rules current" "$x"
+git -C "$x" update-ref -d refs/remotes/origin/main
+git -C "$x" -c user.email=t@t -c user.name=t reset --quiet --hard HEAD~1
+for d in "$off" "$dis"; do silent "repo without the plugin ($(basename "$d"))" "$d"; done
 
 if CLAUDE_NOTIFY_SOUND=0 CLAUDE_NOTIFY_BELL=0 "$hooks/notify.sh" stop; then
     echo "ok    notify: exits 0"
@@ -283,7 +316,7 @@ target="$work/target"
 new_repo "$target" no
 (cd "$target" && bash "$root/install.sh" >/dev/null) || { echo "FAIL  install: exit $?"; fails=$((fails + 1)); }
 for f in CLAUDE.md scripts/check.sh scripts/integrator.sh .claude/prompts/integrator.md .claude/settings.json \
-         .claude/multi-agent-herdr.json; do
+         .claude/multi-agent-herdr.json .claude/multi-agent-herdr-workflow.md; do
     if [[ -f "$target/$f" ]]; then echo "ok    install: $f"
     else echo "FAIL  install: missing $f"; fails=$((fails + 1)); fi
 done
@@ -294,6 +327,38 @@ if grep -q '= CLAUDE.md (exists' <<<"$second" && tail -1 "$target/CLAUDE.md" | g
     echo "ok    install: second run keeps existing files"
 else
     echo "FAIL  install: second run overwrote or did not report"; fails=$((fails + 1))
+fi
+if cmp -s "$rules" "$target/$rules_rel" && grep -qxF "@$rules_rel" "$target/CLAUDE.md"; then
+    echo "ok    install: workflow rules copied and imported by CLAUDE.md"
+else
+    echo "FAIL  install: workflow rules or import missing"; fails=$((fails + 1))
+fi
+if grep -qF "= $rules_rel (up to date)" <<<"$second" && [[ $(grep -cxF "@$rules_rel" "$target/CLAUDE.md") == 1 ]]; then
+    echo "ok    install: second run leaves current rules and the import alone"
+else
+    echo "FAIL  install: second run rules/import: $second"; fails=$((fails + 1))
+fi
+echo "stale" > "$target/$rules_rel"
+out=$(cd "$target" && bash "$root/install.sh" --dry-run)
+if grep -qF "updated to the plugin's version" <<<"$out" && [[ "$(cat "$target/$rules_rel")" == stale ]]; then
+    echo "ok    install: --dry-run reports stale rules without writing"
+else
+    echo "FAIL  install: --dry-run stale rules: $out"; fails=$((fails + 1))
+fi
+(cd "$target" && bash "$root/install.sh" >/dev/null)
+if cmp -s "$rules" "$target/$rules_rel"; then echo "ok    install: stale rules brought up to date"
+else echo "FAIL  install: stale rules kept"; fails=$((fails + 1)); fi
+# A CLAUDE.md from an older install, without the import (and no trailing newline).
+legacy="$work/legacy-claude"
+new_repo "$legacy" no
+printf '# CLAUDE.md\n\n## Multi-agent workflow\nold rules' > "$legacy/CLAUDE.md"
+out=$(cd "$legacy" && bash "$root/install.sh")
+(cd "$legacy" && bash "$root/install.sh" >/dev/null)
+if grep -qF "appended @$rules_rel" <<<"$out" && grep -qxF "old rules" "$legacy/CLAUDE.md" \
+    && [[ $(grep -cxF "@$rules_rel" "$legacy/CLAUDE.md") == 1 ]]; then
+    echo "ok    install: appends the import once to an existing CLAUDE.md"
+else
+    echo "FAIL  install: import into existing CLAUDE.md: $(tr '\n' '|' < "$legacy/CLAUDE.md")"; fails=$((fails + 1))
 fi
 printf '{"model": "opus"}\n' > "$target/.claude/settings.json"
 (cd "$target" && bash "$root/install.sh" >/dev/null)

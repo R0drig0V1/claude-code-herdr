@@ -12,6 +12,11 @@
 # - Copies the project-owned files of template/ (CLAUDE.md, scripts/check.sh,
 #   scripts/integrator.sh, .claude/prompts/integrator.md, docs/ indexes) into the repository.
 #   Existing files are kept and listed, unless --force.
+# - Copies the plugin's workflow rules (plugin/context/workflow.md) to
+#   .claude/multi-agent-herdr-workflow.md. That file is managed by the plugin: it is always
+#   brought up to date (it is versioned, so the change shows in git), and CLAUDE.md imports it
+#   with an `@.claude/multi-agent-herdr-workflow.md` line, appended when an existing CLAUDE.md
+#   lacks it.
 # - Enables the plugin for the project in .claude/settings.json: copied when absent, merged
 #   with jq when present (the snippet is printed when jq is missing). An enabled old
 #   multi-agent@claude-code-multi-agent plugin, which this one replaces, is set to false there:
@@ -34,7 +39,9 @@ for arg in "$@"; do
     case "$arg" in
         --dry-run) dry_run=true ;;
         --force) force=true ;;
-        -h|--help) sed -n '2,23p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true; exit 0 ;;
+        -h|--help)  # the header comment, up to the first line that is not a comment
+            sed -n '2,/^[^#]/{/^#/!d;s/^# \{0,1\}//;p;}' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true
+            exit 0 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
@@ -46,7 +53,8 @@ target=$(git rev-parse --show-toplevel 2>/dev/null) \
 src=""
 if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
     here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-    [[ -d "$here/template" ]] && src="$here"
+    # Only this repository's checkout: a project may have a template/ directory of its own.
+    [[ -f "$here/template/CLAUDE.md" && -f "$here/plugin/context/workflow.md" ]] && src="$here"
 fi
 if [[ -z "$src" ]]; then
     tmp=$(mktemp -d)
@@ -67,6 +75,7 @@ copied=() skipped=()
 do_copy() {  # do_copy <relative path>
     local rel="$1" dest="$target/$1"
     if [[ -e "$dest" ]] && ! $force; then
+        # CLAUDE.md is kept too, but may get the import line appended (reported separately).
         skipped+=("$rel"); return
     fi
     copied+=("$rel")
@@ -79,6 +88,31 @@ while IFS= read -r rel; do
     [[ "$rel" == ".claude/settings.json" ]] && continue
     do_copy "$rel"
 done < <(cd "$src/template" && find . -type f | sed 's|^\./||' | sort)
+
+# Workflow rules managed by the plugin: always the plugin's current version, never "kept".
+WORKFLOW_REL=".claude/multi-agent-herdr-workflow.md"
+IMPORT_LINE="@$WORKFLOW_REL"
+workflow_note=""
+if [[ ! -e "$target/$WORKFLOW_REL" ]]; then
+    workflow_note="added"
+elif ! cmp -s "$src/plugin/context/workflow.md" "$target/$WORKFLOW_REL"; then
+    workflow_note="updated to the plugin's version"
+fi
+if [[ -n "$workflow_note" ]] && ! $dry_run; then
+    mkdir -p "$target/.claude"
+    cp "$src/plugin/context/workflow.md" "$target/$WORKFLOW_REL"
+fi
+# CLAUDE.md must import it. A CLAUDE.md written before this file existed gets the line
+# appended (its old "Plan and workflow" / "Multi-agent workflow" sections are now duplicates:
+# /multi-agent-herdr:setup offers to remove them).
+import_note=""
+if [[ -f "$target/CLAUDE.md" ]] && ! grep -qxF "$IMPORT_LINE" "$target/CLAUDE.md"; then
+    import_note="appended $IMPORT_LINE (remove the old workflow sections it duplicates; /multi-agent-herdr:setup helps)"
+    if ! $dry_run; then
+        [[ -s "$target/CLAUDE.md" && -n "$(tail -c 1 "$target/CLAUDE.md")" ]] && printf '\n' >> "$target/CLAUDE.md"
+        printf '\n%s\n' "$IMPORT_LINE" >> "$target/CLAUDE.md"
+    fi
+fi
 
 # .claude/settings.json: enable the marketplace and the plugin for the project, and turn the
 # old plugin off. "Enabled" means enabledPlugins maps the plugin id to true (a `false` entry
@@ -129,6 +163,9 @@ $dry_run && echo "dry run: nothing was written" && echo
 echo "multi-agent-herdr workflow -> $target"
 for f in ${copied[@]+"${copied[@]}"}; do echo "  + $f"; done
 for f in ${skipped[@]+"${skipped[@]}"}; do echo "  = $f (exists, kept; --force to overwrite)"; done
+if [[ -n "$workflow_note" ]]; then echo "  ~ $WORKFLOW_REL: $workflow_note"
+else echo "  = $WORKFLOW_REL (up to date)"; fi
+[[ -n "$import_note" ]] && echo "  ~ CLAUDE.md: $import_note"
 [[ -n "$settings_note" ]] && echo "  ~ .claude/settings.json: $settings_note"
 for l in ${added[@]+"${added[@]}"}; do echo "  + .gitignore: $l"; done
 if [[ "$settings_note" == NOT* ]]; then
