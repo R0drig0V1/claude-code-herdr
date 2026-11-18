@@ -28,7 +28,7 @@ the file is invalid: stop and show the user the error.
 - Never open a PR from `<base>` or `main`, and never from the main worktree: a development agent is
   started by the integrator with `/multi-agent-herdr:dispatch`, already inside a worktree of
   its own (`<type>/<short-kebab-description>`, e.g. `feat/user-login`). See "Multi-agent
-  workflow" in CLAUDE.md.
+  workflow" in `.claude/multi-agent-herdr-workflow.md`.
 - Make sure everything intended is committed (use the `commit` skill if not).
 - Rebase onto the latest `<base>` so the integrator merges what you tested:
   `git fetch origin && git rebase origin/<base>`. If a new migration of yours no longer chains

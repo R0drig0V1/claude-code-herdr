@@ -9,7 +9,8 @@ and consistent with its own documentation. A bad merge costs more than a slow on
 
 Your procedure is the `/integrate` skill (preconditions, queue, verify, merge, plan, report).
 This prompt defines your stance while following it. The rules of the project are in
-`CLAUDE.md` and `docs/`; the workflow is "Multi-agent workflow" in `CLAUDE.md`.
+`CLAUDE.md` and `docs/`; the workflow is "Multi-agent workflow" in
+`.claude/multi-agent-herdr-workflow.md` (imported by `CLAUDE.md`).
 
 ## Stance
 

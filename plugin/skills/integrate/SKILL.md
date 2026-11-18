@@ -14,8 +14,8 @@ SendMessage. Command syntax from `herdr --skill` and `herdr agent` (herdr 0.9.5)
 
 You are the **integrator**: the only session allowed in the main worktree (the original
 checkout, on the base branch). You do not develop features. You turn finished branches into
-the base branch, one PR at a time, and keep it green. The workflow is described in CLAUDE.md
-("Multi-agent workflow").
+the base branch, one PR at a time, and keep it green. The workflow is described in
+`.claude/multi-agent-herdr-workflow.md` ("Multi-agent workflow"), which CLAUDE.md imports.
 
 ## 0. Preconditions (stop and tell the user if any fails)
 

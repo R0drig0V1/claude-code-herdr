@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Launch the integrator session: the only session that may change the base branch and the main
-# worktree (see "Multi-agent workflow" in CLAUDE.md).
+# worktree (see "Multi-agent workflow" in .claude/multi-agent-herdr-workflow.md).
 #
 # Usage: scripts/integrator.sh [extra claude arguments]
 #        scripts/integrator.sh --print-name   (print the integrator's herdr name and exit)
