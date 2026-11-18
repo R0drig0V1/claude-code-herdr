@@ -4,7 +4,6 @@ description: "Use this agent to review code for correctness bugs, security issue
 tools: Read, Bash, Agent, ToolSearch, WebFetch, WebSearch, ReportFindings
 model: sonnet
 color: purple
-memory: project
 ---
 
 <!--

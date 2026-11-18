@@ -8,6 +8,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Bash guard (`guard-main-bash.py`), found by an adversarial review. Ordinary commands that
+  got through are now blocked: anything after a `#` comment or a line continuation; every
+  command in a repository whose path holds a space; `( ... )`, `{ ...; }`, `if/then`, `!`,
+  `for/do` and `$( ... )`; `git --no-pager|-P|--git-dir|--work-tree ...`; `bash -lc`;
+  `gh -R owner/repo pr merge`; a directory or branch held in a variable assigned on the same
+  command line; `HEAD:heads/main`; a redirection, pipe or command on a heredoc's opening
+  line. `cd` inside a subshell no longer leaks out of it.
+- File writers (`rm`, `cp`, `mv`, `tee`, `sed -i`...) are judged by their target: a path
+  inside the main worktree is blocked from a linked worktree too. `git push` is blocked in
+  the main worktree for every session but the integrator.
+- `verify-merge.sh` fails when `scripts/check.sh` is missing or not executable, instead of
+  printing `VERIFY OK` with nothing checked, and its main-worktree check now takes effect.
+- `integrate` skill: PR comments and the "base moved" notice go through quoted heredocs, so
+  backticks or `$(...)` in a PR title or in command output are no longer run by the
+  integrator's shell. It fetches before verifying each PR and compares the head sha, and
+  deletes the remote branch only when it still holds the merged sha.
+- `plugin-enabled.sh` and the Bash guard agree that only the boolean `true` enables the
+  plugin (the string `"true"` enabled one guard and not the other).
+- The `code-reviewer` agent no longer declares `memory: project`, which gave a read-only agent
+  Write and Edit.
+
 ### Added
 - Guideline "move work forward proactively", in the `dispatch` skill, the integrator prompt,
   the template `CLAUDE.md` and the README. The integrator starts agents for every task that
