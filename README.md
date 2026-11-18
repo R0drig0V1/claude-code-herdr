@@ -38,29 +38,37 @@ Platforms: macOS and Linux. On Windows, use [WSL](https://learn.microsoft.com/wi
 (keep the repository inside the WSL file system, not under `/mnt/c`); native Windows is not
 supported.
 
-1. herdr, if missing: `curl -fsSL https://herdr.dev/install.sh | sh` (other methods:
-   https://herdr.dev/tui/docs/install/), then `herdr integration install claude`.
-2. From inside the repository you want to set up (copies the project-owned files without
-   overwriting, except the plugin-managed `.claude/multi-agent-herdr-workflow.md`, which is
-   always brought up to date, and the one import line appended to an existing `CLAUDE.md`;
-   `--dry-run` previews, `--force` overwrites, and enables the plugin in
-   `.claude/settings.json`):
+Once per machine, herdr, if missing: `curl -fsSL https://herdr.dev/install.sh | sh` (other
+methods: https://herdr.dev/tui/docs/install/).
 
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/R0drig0V1/claude-code-herdr/main/install.sh | bash
-   # or, from a local clone:  bash /path/to/claude-code-herdr/install.sh
-   ```
+Then, in each repository you want to set up, one command from inside it:
 
-3. Install the plugin for the project:
+```bash
+curl -fsSL https://raw.githubusercontent.com/R0drig0V1/claude-code-herdr/main/install.sh | bash
+# or, from a local clone:  bash /path/to/claude-code-herdr/install.sh
+```
 
-   ```bash
-   claude plugin marketplace add R0drig0V1/claude-code-herdr      # or /path/to/claude-code-herdr
-   claude plugin install multi-agent-herdr@claude-code-herdr --scope project
-   ```
+It does the whole setup and ends with a report of this machine and the steps that are left:
 
-   To try it without installing: `claude --plugin-dir /path/to/claude-code-herdr/plugin`.
-4. Inside herdr, run `/multi-agent-herdr:setup` once: it checks herdr, the Claude integration
-   and the project, and installs anything only after you confirm.
+- Copies the project-owned files without overwriting (`--force` overwrites), except the
+  plugin-managed `.claude/multi-agent-herdr-workflow.md`, which is always brought up to date,
+  and the one import line appended to an existing `CLAUDE.md`. It never writes through a
+  symbolic link or outside the repository.
+- Enables the plugin in `.claude/settings.json` and installs it with the `claude` CLI when it
+  is not installed yet (`--no-plugin` skips that). Without the CLI it prints the two commands:
+  `claude plugin marketplace add R0drig0V1/claude-code-herdr` and
+  `claude plugin install multi-agent-herdr@claude-code-herdr --scope project`.
+- Checks `jq`, `python3`, `gh`, herdr and herdr's Claude integration. It never installs
+  herdr; when the integration is missing it asks before running
+  `herdr integration install claude`.
+- `--dry-run` previews everything and changes nothing.
+
+What is left is yours: fill in the TODOs of `CLAUDE.md`, put your checks in
+`scripts/check.sh`, commit, and launch the integrator inside herdr with
+`scripts/integrator.sh`. `/multi-agent-herdr:setup` runs the same checks from inside Claude
+Code later (after a plugin update, or to diagnose a project); it is not a required step.
+
+To try the plugin without installing: `claude --plugin-dir /path/to/claude-code-herdr/plugin`.
 
 **Scope.** A project-scope install lives in that repository's `.claude/settings.json`. With a
 user-scope install the skills are listed everywhere, but the guard and SessionStart hooks only
