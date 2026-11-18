@@ -5,7 +5,8 @@ Part of the multi-agent-herdr plugin (ported from multi-agent 0.1.0; only the pl
 and the block message differ).
 
 Only the integrator session (CLAUDE_ROLE=integrator) may change the main worktree or the
-protected branches (see "Multi-agent workflow" in .claude/multi-agent-herdr-workflow.md). It only acts on repositories
+protected branches (see "Multi-agent workflow" in
+.claude/multi-agent-herdr-workflow.md). It only acts on repositories
 that enabled the plugin in `.claude/settings.json` or `.claude/settings.local.json`
 (`enabledPlugins` value `true`; `settings.local.json` wins when it sets the key). There, for
 every other session, it blocks:
@@ -399,7 +400,8 @@ def main() -> int:
         "Development happens "
         "in a worktree of its own, started by the integrator with /multi-agent-herdr:dispatch "
         '(one git worktree and one herdr workspace per agent). See "Multi-agent workflow" in '
-        ".claude/multi-agent-herdr-workflow.md. If you are the integrator, launch Claude Code with scripts/integrator.sh "
+        ".claude/multi-agent-herdr-workflow.md. If you are the integrator, launch Claude Code "
+        "with scripts/integrator.sh "
         "(CLAUDE_ROLE=integrator).",
         file=sys.stderr,
     )

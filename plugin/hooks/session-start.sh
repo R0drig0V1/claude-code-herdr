@@ -9,8 +9,11 @@
 #    imported by CLAUDE.md, so Claude Code loads them in every session and subagent without
 #    depending on this hook. That copy comes from the plugin (context/workflow.md) and goes
 #    stale when the plugin changes. When the copy in this worktree is missing or differs from
-#    the installed plugin's, the session is told to mention it to the user once and point to
-#    /multi-agent-herdr:setup. The hook never rewrites the file: the update goes through a PR.
+#    the installed plugin's, the session is told to mention it to the user once. The hook never
+#    rewrites the file: a development agent updates it in its own worktree
+#    (/multi-agent-herdr:setup there) and the change reaches the base branch through a PR.
+#    A linked worktree whose copy is the base branch's stays quiet: it cannot fix the base
+#    branch from there, and it gets the update when it rebases.
 # 2. Main worktree. It belongs to the integrator (see .claude/multi-agent-herdr-workflow.md).
 #    Development agents do not create their own worktree from here: the integrator starts each
 #    one with /multi-agent-herdr:dispatch, already inside its own worktree and herdr workspace,
@@ -46,11 +49,23 @@ if [[ -f "$plugin_rules" ]]; then
     elif ! cmp -s "$plugin_rules" "$worktree_root/$rules_rel"; then
         state="differs from the installed multi-agent-herdr plugin's version"
     fi
+    if [[ -n "$state" && "$git_dir" != "$common_dir" ]]; then
+        base=$("$(dirname "$0")/../scripts/project-config.py" --root "$repo_root" base_branch 2>/dev/null) \
+            || base=main
+        if [[ -f "$worktree_root/$rules_rel" ]]; then
+            git -C "$worktree_root" show "origin/$base:$rules_rel" 2>/dev/null \
+                | cmp -s - "$worktree_root/$rules_rel" && state=""
+        else
+            git -C "$worktree_root" cat-file -e "origin/$base:$rules_rel" 2>/dev/null || state=""
+        fi
+    fi
     if [[ -n "$state" ]]; then
-        context+="The workflow rules file $rules_rel $state. Tell the user once, in one line,
-that /multi-agent-herdr:setup brings it up to date (the change goes through a pull request
-like any other), or that the plugin itself may be the outdated side (/plugin to update it).
-Until then follow the rules CLAUDE.md loads. Do not edit that file yourself."
+        context+="The workflow rules file $rules_rel $state. Tell the user once, in one line:
+it is a versioned file, so a development agent brings it up to date in its own worktree
+(/multi-agent-herdr:setup there, or copy the plugin's context/workflow.md over it) and opens a
+pull request like any other change; or the plugin itself may be the outdated side (/plugin to
+update it). Until then follow the rules CLAUDE.md loads. Do not merge local edits into that
+file: project rules go in CLAUDE.md."
     fi
 fi
 

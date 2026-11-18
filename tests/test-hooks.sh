@@ -210,11 +210,22 @@ echo "local change" >> "$on/$rules_rel"
 CLAUDE_ROLE=integrator has "integrator, rules differ" "$(CLAUDE_ROLE=integrator ctx "$on")" \
     "differs from the installed" "MAIN worktree"
 rm -f "$on/$rules_rel"
-# A linked worktree: only the rules note, never the main-worktree instructions.
-has "linked worktree, rules missing" "$(ctx "$work/on-x")" "$rules_rel is missing" "MAIN worktree"
-mkdir -p "$work/on-x/.claude" && cp "$rules" "$work/on-x/$rules_rel"
-silent "linked worktree, rules current" "$work/on-x"
-rm -f "$work/on-x/$rules_rel"
+# A linked worktree is told only when its copy is neither the plugin's nor the base branch's:
+# it cannot fix the base branch from there, and never gets the main-worktree instructions.
+x="$work/on-x"
+silent "linked worktree, rules missing here and on the base branch" "$x"
+mkdir -p "$x/.claude" && echo "stale rules" > "$x/$rules_rel"
+git -C "$x" add "$rules_rel" && git -C "$x" -c user.email=t@t -c user.name=t commit --quiet -m rules
+git -C "$x" update-ref refs/remotes/origin/main HEAD
+silent "linked worktree, stale copy is the base branch's" "$x"
+echo "local change" >> "$x/$rules_rel"
+has "linked worktree, copy differs from plugin and base" "$(ctx "$x")" "differs from the installed" "MAIN worktree"
+rm -f "$x/$rules_rel"
+has "linked worktree, rules deleted but on the base branch" "$(ctx "$x")" "$rules_rel is missing" "MAIN worktree"
+cp "$rules" "$x/$rules_rel"
+silent "linked worktree, rules current" "$x"
+git -C "$x" update-ref -d refs/remotes/origin/main
+git -C "$x" -c user.email=t@t -c user.name=t reset --quiet --hard HEAD~1
 for d in "$off" "$dis"; do silent "repo without the plugin ($(basename "$d"))" "$d"; done
 
 if CLAUDE_NOTIFY_SOUND=0 CLAUDE_NOTIFY_BELL=0 "$hooks/notify.sh" stop; then

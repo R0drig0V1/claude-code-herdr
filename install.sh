@@ -39,7 +39,9 @@ for arg in "$@"; do
     case "$arg" in
         --dry-run) dry_run=true ;;
         --force) force=true ;;
-        -h|--help) sed -n '2,23p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true; exit 0 ;;
+        -h|--help)  # the header comment, up to the first line that is not a comment
+            sed -n '2,/^[^#]/{/^#/!d;s/^# \{0,1\}//;p;}' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null || true
+            exit 0 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
@@ -51,7 +53,8 @@ target=$(git rev-parse --show-toplevel 2>/dev/null) \
 src=""
 if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
     here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-    [[ -d "$here/template" ]] && src="$here"
+    # Only this repository's checkout: a project may have a template/ directory of its own.
+    [[ -f "$here/template/CLAUDE.md" && -f "$here/plugin/context/workflow.md" ]] && src="$here"
 fi
 if [[ -z "$src" ]]; then
     tmp=$(mktemp -d)
@@ -72,6 +75,7 @@ copied=() skipped=()
 do_copy() {  # do_copy <relative path>
     local rel="$1" dest="$target/$1"
     if [[ -e "$dest" ]] && ! $force; then
+        # CLAUDE.md is kept too, but may get the import line appended (reported separately).
         skipped+=("$rel"); return
     fi
     copied+=("$rel")

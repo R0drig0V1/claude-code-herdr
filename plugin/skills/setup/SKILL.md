@@ -71,20 +71,29 @@ ls "$root"/scripts/check.sh "$root"/scripts/integrator.sh "$root"/.claude/prompt
   next time a session starts (the SessionStart hook) or it runs `dispatch` or `integrate`.
 
 - **Workflow rules** (`.claude/multi-agent-herdr-workflow.md`, managed by the plugin and
-  imported by `CLAUDE.md`). Check, in the main worktree:
+  imported by `CLAUDE.md`). They are versioned files, so check and change the copies of the
+  **worktree this session is in**, not the main worktree's:
 
   ```bash
-  cmp "${CLAUDE_PLUGIN_ROOT}/context/workflow.md" "$root/.claude/multi-agent-herdr-workflow.md"
-  grep -nxF '@.claude/multi-agent-herdr-workflow.md' "$root/CLAUDE.md"
-  grep -nE '^## (Plan and workflow|Multi-agent workflow)$' "$root/CLAUDE.md"
+  wt=$(git rev-parse --show-toplevel)
+  cmp "${CLAUDE_PLUGIN_ROOT}/context/workflow.md" "$wt/.claude/multi-agent-herdr-workflow.md"
+  grep -nxF '@.claude/multi-agent-herdr-workflow.md' "$wt/CLAUDE.md"
+  grep -nE '^## (Plan and workflow|Multi-agent workflow)$' "$wt/CLAUDE.md"
   ```
 
+  In a project that already runs the workflow, any change below is made in a development
+  agent's worktree and reaches the base branch through a PR (`/multi-agent-herdr:commit`,
+  `/multi-agent-herdr:pr`). If this session is in the main worktree, do not write there
+  (the guards block it, and the integrator does not develop): report what is outdated and
+  tell the user to have the integrator dispatch an agent for it, e.g.
+  `/multi-agent-herdr:dispatch chore/workflow-rules "Run /multi-agent-herdr:setup and open a PR"`.
+  Only a project being set up for the first time, with nothing committed yet, is changed in
+  place.
+
   - Missing or different: show `diff` between the two files and, after the user confirms,
-    copy the plugin's version over it. It is a versioned file in the main worktree, so the
-    change follows the project's normal path (a development agent and a PR, or the user
-    committing it); never edit it by hand to merge local changes, they belong in `CLAUDE.md`.
-    If the project's copy looks newer than the plugin's, the plugin is the outdated side:
-    suggest updating it (`/plugin`) instead.
+    copy the plugin's version over it. Never edit it by hand to merge local changes, they
+    belong in `CLAUDE.md`. If the project's copy looks newer than the plugin's, the plugin is
+    the outdated side: suggest updating it (`/plugin`) instead.
   - No import line in `CLAUDE.md`: offer to add it (a `## Workflow` section with the line
     `@.claude/multi-agent-herdr-workflow.md`).
   - `## Plan and workflow` or `## Multi-agent workflow` still in `CLAUDE.md` (written by an

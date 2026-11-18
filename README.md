@@ -41,7 +41,9 @@ supported.
 1. herdr, if missing: `curl -fsSL https://herdr.dev/install.sh | sh` (other methods:
    https://herdr.dev/tui/docs/install/), then `herdr integration install claude`.
 2. From inside the repository you want to set up (copies the project-owned files without
-   overwriting, `--dry-run` previews, `--force` overwrites, and enables the plugin in
+   overwriting, except the plugin-managed `.claude/multi-agent-herdr-workflow.md`, which is
+   always brought up to date, and the one import line appended to an existing `CLAUDE.md`;
+   `--dry-run` previews, `--force` overwrites, and enables the plugin in
    `.claude/settings.json`):
 
    ```bash
@@ -180,8 +182,10 @@ imports (`@.claude/multi-agent-herdr-workflow.md`). Claude Code therefore loads 
 session and subagent, from the project's own versioned copy, without depending on a hook. The
 copy is managed by the plugin: do not edit it (project rules go in `CLAUDE.md`). When the
 plugin changes the rules, the `SessionStart` hook notices the copy differs and the session
-says so once; `/multi-agent-herdr:setup` or a rerun of `install.sh` updates the copy, and the
-change reaches the base branch through a PR like any other.
+says so once. A development agent updates the copy in its own worktree
+(`/multi-agent-herdr:setup` or a rerun of `install.sh` there) and the change reaches the base
+branch through a PR like any other. A worktree whose copy is still the base branch's is not
+warned: it gets the update when it rebases.
 
 ## Rules
 
