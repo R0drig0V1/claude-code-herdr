@@ -78,7 +78,58 @@ expect 2 "bash: push to main from a worktree"         "$g" "$(bash_cmd 'git push
 expect 0 "bash: read-only commands"                   "$g" "$(bash_cmd 'ls -la && git status && git log -1' "$on")"
 expect 0 "bash: write to /tmp"                        "$g" "$(bash_cmd 'echo hi > /tmp/x.txt' "$on")"
 expect 0 "bash: commit in a linked worktree"          "$g" "$(bash_cmd 'git commit -m x' "$work/on-x")"
-expect 0 "bash: heredoc body is data"                 "$g" "$(bash_cmd $'git -C '"$work/on-x"$' commit -F - <<\'M\'\nrm -rf /\nM' "$work")"
+# Ordinary commands that used to get through (adversarial review, 2026-11-18).
+x="$work/on-x"
+expect 2 "bash: comment line before a push"            "$g" "$(bash_cmd $'# publish\ngit push origin HEAD:main' "$x")"
+expect 2 "bash: comment line before a commit"          "$g" "$(bash_cmd $'# save the work\ngit commit -m x' "$on")"
+expect 2 "bash: # inside a word is not a comment"      "$g" "$(bash_cmd 'echo issue#12; git commit -m x' "$on")"
+expect 0 "bash: trailing comment with a quote"         "$g" "$(bash_cmd "git status # don't commit" "$on")"
+expect 0 "bash: # inside quotes"                       "$g" "$(bash_cmd "echo 'a # b' && git status" "$on")"
+expect 2 "bash: line continuation"                     "$g" "$(bash_cmd $'git \\\ncommit -m x' "$on")"
+expect 2 "bash: subshell"                              "$g" "$(bash_cmd '(git commit -m x)' "$on")"
+expect 2 "bash: subshell with cd into main"            "$g" "$(bash_cmd "(cd $on && git commit -m x)" "$x")"
+expect 0 "bash: subshell with cd out of main"          "$g" "$(bash_cmd "(cd $x && git commit -m x)" "$on")"
+expect 2 "bash: cd in a subshell does not leak"        "$g" "$(bash_cmd "(cd $x); git commit -m x" "$on")"
+expect 2 "bash: brace group"                           "$g" "$(bash_cmd '{ git commit -m x; }' "$on")"
+expect 2 "bash: brace group with cd"                   "$g" "$(bash_cmd "{ cd $on && git commit -m x; }" "$x")"
+expect 2 "bash: if/then"                               "$g" "$(bash_cmd 'if true; then git commit -m x; fi' "$on")"
+expect 2 "bash: negation"                              "$g" "$(bash_cmd '! git commit -m x' "$on")"
+expect 2 "bash: for/do"                                "$g" "$(bash_cmd 'for f in a b; do rm $f; done' "$on")"
+expect 2 "bash: command substitution"                  "$g" "$(bash_cmd 'echo $(git commit -m x)' "$on")"
+expect 0 "bash: harmless command substitution"         "$g" "$(bash_cmd 'x=$(git rev-parse HEAD); echo "$x"' "$on")"
+expect 2 "bash: git --no-pager commit"                 "$g" "$(bash_cmd 'git --no-pager commit -m x' "$on")"
+expect 2 "bash: git -P commit"                         "$g" "$(bash_cmd 'git -P commit -m x' "$on")"
+expect 0 "bash: git --no-pager log"                    "$g" "$(bash_cmd 'git --no-pager log -1' "$on")"
+expect 2 "bash: git --no-pager push to main"           "$g" "$(bash_cmd 'git --no-pager push origin HEAD:main' "$x")"
+expect 2 "bash: git -C main --no-pager commit"         "$g" "$(bash_cmd "git -C $on --no-pager commit -m x" "$x")"
+expect 2 "bash: git --git-dir/--work-tree of main"     "$g" "$(bash_cmd "git --git-dir=$on/.git --work-tree=$on commit -m x" "$x")"
+expect 2 "bash: bash -lc"                              "$g" "$(bash_cmd "bash -lc 'git commit -m x'" "$on")"
+expect 2 "bash: gh -R o/r pr merge"                    "$g" "$(bash_cmd 'gh -R o/r pr merge 3' "$x")"
+expect 2 "bash: cd to a variable set in the command"   "$g" "$(bash_cmd "MAIN=$on; cd \"\$MAIN\" && git commit -m x" "$x")"
+expect 2 "bash: push to a variable set in the command" "$g" "$(bash_cmd 'B=main; git push origin HEAD:$B' "$x")"
+expect 2 "bash: push to heads/main"                    "$g" "$(bash_cmd 'git push origin HEAD:heads/main' "$x")"
+expect 2 "bash: bare git push in the main worktree"    "$g" "$(bash_cmd 'git push' "$on")"
+expect 0 "bash: git push of the branch in a worktree"  "$g" "$(bash_cmd 'git push -u origin HEAD' "$x")"
+expect 0 "bash: commit message with parens and #"      "$g" "$(bash_cmd 'git commit -m "fix(scope): x (#12)"' "$x")"
+# A heredoc's body is data, its opening line is not.
+expect 0 "bash: heredoc body in the main worktree"     "$g" "$(bash_cmd $'cat <<\'M\'\ngit commit -m x\nM' "$on")"
+expect 0 "bash: heredoc body with # and a quote"       "$g" "$(bash_cmd $'git commit -F - <<\'M\'\nfix: # don\'t\nM' "$x")"
+expect 2 "bash: redirect after the heredoc opener"     "$g" "$(bash_cmd $'cat <<\'M\' > src.py\nbody\nM' "$on")"
+expect 2 "bash: command after the heredoc opener"      "$g" "$(bash_cmd $'python3 - <<\'M\' && git commit -m x\nprint(1)\nM' "$on")"
+expect 2 "bash: pipe after the heredoc opener"         "$g" "$(bash_cmd $'cat <<M | tee notes.md\nbody\nM' "$on")"
+# File writers are judged by their target, also from a linked worktree.
+expect 2 "bash: rm of a main path from a worktree"     "$g" "$(bash_cmd "rm -rf $on/src" "$x")"
+expect 2 "bash: cp into main from a worktree"          "$g" "$(bash_cmd "cp a.txt $on/a.txt" "$x")"
+expect 2 "bash: sed -i of a main file from a worktree" "$g" "$(bash_cmd "sed -i '' s/a/b/ $on/README.md" "$x")"
+expect 2 "bash: tee into main from a worktree"         "$g" "$(bash_cmd "echo hi | tee $on/f.txt" "$x")"
+expect 2 "bash: settings.local.json of main"           "$g" "$(bash_cmd "cp s.json $on/.claude/settings.local.json" "$x")"
+expect 0 "bash: rm inside the worktree"                "$g" "$(bash_cmd 'rm -rf build' "$x")"
+expect 0 "bash: cp inside the worktree"                "$g" "$(bash_cmd "cp a.txt $x/b.txt" "$x")"
+# A repository whose path holds a space is guarded like any other.
+spg="$work/sp ace/repo"; mkdir -p "$work/sp ace"; new_repo "$spg" yes
+expect 2 "bash: commit, repository path with a space"  "$g" "$(bash_cmd 'git commit -m x' "$spg")"
+expect 2 "bash: push main, path with a space"          "$g" "$(bash_cmd 'git push origin HEAD:main' "$spg")"
+expect 2 "edit: repository path with a space"          "$hooks/guard-main-worktree.sh" "$(file_op "$spg/new.md")"
 expect 0 "bash: repo without the plugin"              "$g" "$(bash_cmd 'git commit -m x && rm -rf src' "$off")"
 expect 0 "bash: gh pr merge in repo without plugin"   "$g" "$(bash_cmd 'gh pr merge 3' "$off")"
 CLAUDE_ROLE=integrator expect 0 "bash: integrator"    "$g" "$(bash_cmd 'git commit -m x' "$on")"
@@ -172,6 +223,33 @@ done
 # An invalid file must not open the guards: the defaults still protect main.
 expect 2 "settings: invalid file, main still protected" "$g" "$(bash_cmd 'git push origin HEAD:main' "$bad_cfg")"
 expect 2 "settings: invalid file, main worktree guarded" "$g" "$(bash_cmd 'git commit -m x' "$bad_cfg")"
+
+# verify-merge.sh: the exit code is the verdict, and no check.sh means no verdict.
+vm="$root/plugin/scripts/verify-merge.sh"
+verify() {  # verify <want exit> <description>: run verify-merge.sh in $on as the integrator would
+    local got
+    (cd "$on" && "$vm" >/dev/null 2>&1); got=$?
+    if [[ "$got" == "$1" ]]; then echo "ok    verify-merge: $2"
+    else echo "FAIL  verify-merge: $2 (exit $got, want $1)"; fails=$((fails + 1)); fi
+}
+verify 1 "no scripts/check.sh fails"
+mkdir -p "$on/scripts"; printf '#!/bin/sh\nexit 0\n' > "$on/scripts/check.sh"
+verify 1 "check.sh without the executable bit fails"
+chmod +x "$on/scripts/check.sh"
+verify 0 "passing check.sh"
+if (cd "$on" && "$vm" 2>/dev/null | tail -n 1 | grep -qx "VERIFY OK"); then echo "ok    verify-merge: prints VERIFY OK"
+else echo "FAIL  verify-merge: no VERIFY OK line"; fails=$((fails + 1)); fi
+printf '#!/bin/sh\nexit 3\n' > "$on/scripts/check.sh"
+verify 3 "failing check.sh gives its exit code"
+(cd "$work/on-x" && "$vm" >/dev/null 2>&1); [[ $? == 2 ]] \
+    && echo "ok    verify-merge: refuses a linked worktree" \
+    || { echo "FAIL  verify-merge: ran in a linked worktree"; fails=$((fails + 1)); }
+rm -rf "$on/scripts"
+# The two guards agree on what "enabled" means: only the boolean true.
+strq="$work/string-true"; new_repo "$strq" no
+printf '{"enabledPlugins": {"multi-agent-herdr@claude-code-herdr": "true"}}\n' > "$strq/.claude/settings.json"
+expect 0 "bash: enabledPlugins \"true\" string is not enabled" "$g" "$(bash_cmd 'git commit -m x' "$strq")"
+expect 0 "edit: enabledPlugins \"true\" string is not enabled" "$hooks/guard-main-worktree.sh" "$(file_op "$strq/new.md")"
 
 w="$hooks/guard-main-worktree.sh"
 expect 2 "edit: file in main worktree"                "$w" "$(file_op "$on/a/b/new.md")"
