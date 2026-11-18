@@ -39,6 +39,18 @@ All notable changes to this project are documented here. The format follows
   `template/scripts/integrator.sh` and `claim-integrator.sh` document the hook.
 
 ### Changed
+- The workflow rules (documentation, ADRs, `scripts/check.sh`, plan, integrator and
+  development agents) moved out of the `CLAUDE.md` template into the plugin
+  (`plugin/context/workflow.md`). `install.sh` copies them to
+  `.claude/multi-agent-herdr-workflow.md`, always to the plugin's current version, and the
+  project's `CLAUDE.md` imports that file (`@.claude/multi-agent-herdr-workflow.md`, appended
+  to an existing `CLAUDE.md` that lacks it), so sessions and subagents load the rules without
+  depending on a hook and they no longer go stale silently in each project.
+- The `SessionStart` hook is now `session-start.sh`: besides the main-worktree instructions,
+  it tells the session (in any worktree, the integrator's too) when the project's copy of the
+  rules is missing or differs from the installed plugin's. `/multi-agent-herdr:setup` checks
+  the copy, the import and leftover old workflow sections in `CLAUDE.md`, and offers to fix
+  them.
 - `integrator_name` defaults to `integrator-<repository>` (the main worktree's directory name,
   lower case, runs outside `[a-z0-9_-]` replaced by `-`, cut to 32 characters) instead of
   `integrator`. herdr agent names are unique per server, so with the old default a second

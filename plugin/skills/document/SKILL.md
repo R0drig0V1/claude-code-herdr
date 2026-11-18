@@ -45,7 +45,7 @@ git diff origin/<base>...HEAD --stat   # <base>: `"${CLAUDE_PLUGIN_ROOT}/scripts
 |-----------|--------|
 | architecture, module boundaries | `docs/architecture.md` |
 | setup, env vars, commands | `README.md`, `.env.example` |
-| `.claude/`, `scripts/` | `CLAUDE.md` ("Multi-agent workflow", "Commands") |
+| `.claude/`, `scripts/` | `CLAUDE.md` ("Commands"). Never edit `.claude/multi-agent-herdr-workflow.md`: the plugin manages it |
 
 ## 3. Verify
 
